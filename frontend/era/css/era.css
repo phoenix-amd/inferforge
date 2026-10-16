@@ -402,6 +402,83 @@
     scrollbar-width: none;
 }
 
+/* Inline heatmap replaces the chart in the main panel */
+.era-inline-heatmap {
+    flex-shrink: 0;
+    border-top: 1px solid var(--era-border);
+    padding: 4px 4px 3px;
+    background: rgba(0,0,0,0.15);
+}
+.era-inline-hm-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+.era-inline-hm-title {
+    font-family: var(--mono);
+    font-size: 8px;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    flex: 1;
+}
+.era-inline-hm-btns { display: flex; gap: 2px; }
+.era-inline-metric {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 2px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 8px;
+    padding: 1px 5px;
+    cursor: pointer;
+}
+.era-inline-metric.active {
+    background: rgba(0,200,150,0.12);
+    border-color: rgba(0,200,150,0.35);
+    color: #00c896;
+}
+.era-inline-expand {
+    background: none;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 2px;
+    color: rgba(0,212,255,0.5);
+    font-size: 10px;
+    padding: 0 4px;
+    cursor: pointer;
+    line-height: 1.4;
+}
+.era-inline-expand:hover { color: var(--cyan); border-color: var(--cyan); }
+.era-inline-hm-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono);
+    font-size: 9px;
+}
+.era-inline-hm-table th {
+    font-size: 7px;
+    color: var(--text-dim);
+    padding: 1px 2px;
+    text-align: center;
+    letter-spacing: 0.04em;
+}
+.era-inline-hm-node {
+    font-size: 8px;
+    color: #8899aa;
+    padding: 2px 4px 2px 0;
+    white-space: nowrap;
+}
+.era-inline-hm-cell {
+    text-align: center;
+    padding: 3px 1px;
+    font-size: 9px;
+    font-weight: 700;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: transform 0.1s;
+}
+.era-inline-hm-cell:hover { transform: scale(1.15); }
+
 .era-telemetry-chart-wrap {
     flex-shrink: 0;
     height: 130px;
@@ -572,12 +649,116 @@
 }
 
 /* Expandable telemetry chart */
-.era-telemetry-chart-wrap.expanded {
-    height: 220px;
-}
-.era-telemetry-chart-wrap canvas {
+.era-telemetry-chart-wrap {
+    position: relative;
     cursor: pointer;
 }
+.era-telemetry-chart-wrap:hover .era-telem-expand-hint {
+    opacity: 1;
+}
+.era-telem-expand-hint {
+    position: absolute;
+    bottom: 6px;
+    right: 8px;
+    font-size: 9px;
+    font-family: var(--mono);
+    color: rgba(0,212,255,0.5);
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+}
+
+/* Telemetry full-screen modal */
+.era-telem-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    background: rgba(0, 0, 5, 0.88);
+    backdrop-filter: blur(4px);
+    align-items: center;
+    justify-content: center;
+}
+.era-telem-modal.open {
+    display: flex;
+}
+.era-telem-modal-content {
+    background: var(--era-bg-panel);
+    border: 1px solid var(--era-border-active);
+    border-radius: 6px;
+    width: 96vw;
+    max-width: 1400px;
+    height: 90vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 0 40px rgba(0, 212, 255, 0.15);
+}
+.era-telem-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--era-border);
+    flex-shrink: 0;
+}
+.era-telem-modal-title {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: var(--cyan);
+}
+.era-telem-modal-hint {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-dim);
+}
+#telem-modal-charts {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    scrollbar-width: thin;
+}
+
+/* Per-node chart card inside modal */
+.era-node-chart-card {
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--era-border);
+    border-radius: 4px;
+    padding: 10px 12px 8px;
+}
+.era-node-chart-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.era-node-chart-title .badge {
+    font-size: 8px;
+    padding: 1px 6px;
+    border-radius: 2px;
+    background: rgba(0,212,255,0.1);
+    border: 1px solid rgba(0,212,255,0.3);
+    color: var(--cyan);
+}
+.era-node-chart-stats {
+    display: flex;
+    gap: 20px;
+    font-family: var(--mono);
+    font-size: 10px;
+    margin-bottom: 6px;
+}
+.era-node-chart-stats .stat-k { color: var(--text-dim); }
+.era-node-chart-stats .stat-v { font-weight: 700; margin-left: 4px; }
 
 /* -- Node stats row (UTIL, TEMP, PWR) -- */
 .era-node-stats {
@@ -1642,6 +1823,216 @@
 
 .era-qcmd:active {
     background: rgba(0, 212, 255, 0.22);
+}
+
+/* ==============================
+   TELEMETRY MODAL TABS & CONTROLS
+   ============================== */
+.era-telem-tabs {
+    display: flex;
+    gap: 4px;
+}
+.era-telem-tab {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 3px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 3px 10px;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    transition: all 0.15s;
+}
+.era-telem-tab.active, .era-telem-tab:hover {
+    background: rgba(0,212,255,0.12);
+    border-color: rgba(0,212,255,0.4);
+    color: var(--cyan);
+}
+.era-metric-btns {
+    display: flex;
+    gap: 3px;
+}
+.era-metric-btn {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 3px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 3px 8px;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    transition: all 0.15s;
+}
+.era-metric-btn.active {
+    background: rgba(0,200,150,0.15);
+    border-color: rgba(0,200,150,0.45);
+    color: #00c896;
+}
+.era-metric-btn:hover { border-color: rgba(255,255,255,0.3); color: var(--text-bright); }
+
+/* ==============================
+   HEATMAP GRID
+   ============================== */
+.era-hm-wrap {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 14px;
+    height: 100%;
+    overflow: hidden;
+    padding: 4px 2px;
+}
+.era-hm-left {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow: auto;
+}
+.era-hm-right {
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--era-border);
+    border-radius: 4px;
+    overflow-y: auto;
+    padding: 14px;
+}
+.era-hm-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono);
+    font-size: 11px;
+}
+.era-hm-table th {
+    color: var(--text-dim);
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    padding: 4px 6px;
+    text-align: center;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.06);
+}
+.era-hm-table th:first-child { text-align: left; min-width: 80px; }
+.era-hm-node {
+    color: #8899aa;
+    font-size: 10px;
+    padding: 5px 8px;
+    border: 1px solid rgba(255,255,255,0.05);
+    white-space: nowrap;
+}
+.era-hm-cell {
+    text-align: center;
+    padding: 6px 4px;
+    font-size: 11px;
+    font-weight: 700;
+    border: 1px solid transparent;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: transform 0.1s, box-shadow 0.1s;
+    min-width: 44px;
+}
+.era-hm-cell:hover {
+    transform: scale(1.08);
+    box-shadow: 0 0 8px currentColor;
+    z-index: 1;
+    position: relative;
+}
+.era-hm-cell.selected {
+    outline: 2px solid #00d4ff;
+    outline-offset: -2px;
+}
+.era-hm-nodata {
+    color: rgba(255,255,255,0.15);
+    font-size: 10px;
+    border: 1px solid rgba(255,255,255,0.04);
+    cursor: default;
+}
+.era-hm-summary {
+    padding: 5px 8px;
+    font-size: 9px;
+    white-space: nowrap;
+    border: 1px solid rgba(255,255,255,0.05);
+}
+.era-hm-legend-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 4px 2px;
+}
+.era-hm-gradient {
+    height: 6px;
+    border-radius: 3px;
+}
+.era-hm-legend-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 8px;
+    font-family: var(--mono);
+    color: var(--text-dim);
+}
+.era-hm-hint {
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 10px;
+    text-align: center;
+    padding: 40px 12px;
+    line-height: 1.8;
+}
+
+/* ==============================
+   DRILL-DOWN PANEL
+   ============================== */
+.era-dd-header { margin-bottom: 12px; border-bottom: 1px solid var(--era-border); padding-bottom: 10px; }
+.era-dd-title {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--cyan);
+    letter-spacing: 0.06em;
+}
+.era-dd-sub {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-top: 3px;
+}
+
+/* Each metric section: label + current value + chart */
+.era-dd-section {
+    margin-bottom: 14px;
+}
+.era-dd-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 5px;
+}
+.era-dd-section-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-dim);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+.era-dd-section-val {
+    font-family: var(--mono);
+    font-size: 16px;
+    font-weight: 700;
+}
+.era-dd-canvas {
+    width: 100%;
+    display: block;
+    border-radius: 3px;
+}
+.era-dd-footer {
+    margin-top: 12px;
+    padding-top: 8px;
+    border-top: 1px solid var(--era-border);
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-dim);
+    display: flex;
+    justify-content: space-between;
 }
 
 .era-qcmd-reset {

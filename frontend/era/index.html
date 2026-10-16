@@ -82,17 +82,27 @@
         </div>
       </div>
       <div class="era-panel-body era-telemetry-body" id="telemetry-body">
+        <!-- Node cards (top, scrollable) -->
         <div class="era-telemetry-grid" id="telemetry-grid">
-          <!-- Node cards rendered by JS -->
           <div class="era-empty-panel">
             <div class="era-empty-label">AWAITING NODE DATA</div>
             <div class="era-empty-hint">Configure cluster and run GPU detection</div>
           </div>
         </div>
-        <div class="era-telemetry-chart-wrap" id="telem-chart-wrap" onclick="Era.toggleTelemExpand()">
-          <canvas id="canvas-telemetry" title="Click to expand"></canvas>
+
+        <!-- Compact inline heatmap (bottom of panel) -->
+        <div class="era-inline-heatmap" id="inline-heatmap-wrap">
+          <div class="era-inline-hm-header">
+            <span class="era-inline-hm-title">GPU HEATMAP</span>
+            <div class="era-inline-hm-btns">
+              <button class="era-inline-metric active" id="inline-metric-util" onclick="Era.setInlineMetric('util')">U%</button>
+              <button class="era-inline-metric" id="inline-metric-temp" onclick="Era.setInlineMetric('temp')">°C</button>
+              <button class="era-inline-metric" id="inline-metric-power" onclick="Era.setInlineMetric('power')">W</button>
+            </div>
+            <button class="era-inline-expand" onclick="Era.openTelemModal()" title="Expand full view">⤢</button>
+          </div>
+          <div id="inline-heatmap"></div>
         </div>
-        <div class="era-telem-legend" id="telem-legend"></div>
       </div>
     </section>
 
@@ -442,6 +452,33 @@
 </div><!-- /app -->
 
 <!-- Chart Expand Modal -->
+<!-- Telemetry expand modal -->
+<div id="telem-modal" class="era-telem-modal" onclick="Era.closeTelemModal(event)">
+  <div class="era-telem-modal-content" onclick="event.stopPropagation()">
+    <div class="era-telem-modal-header">
+      <div style="display:flex;align-items:center;gap:16px">
+        <span class="era-telem-modal-title">GPU TELEMETRY</span>
+        <!-- View tabs -->
+        <div class="era-telem-tabs">
+          <button id="telem-tab-heatmap" class="era-telem-tab active" onclick="Era.setTelemView('heatmap')">Heatmap</button>
+          <button id="telem-tab-timeline" class="era-telem-tab" onclick="Era.setTelemView('timeline')">Timeline</button>
+        </div>
+        <!-- Metric toggle (heatmap only) -->
+        <div class="era-metric-btns" id="metric-btns">
+          <button id="metric-btn-util" class="era-metric-btn active" onclick="Era.setTelemMetric('util')">Utilization</button>
+          <button id="metric-btn-temp" class="era-metric-btn" onclick="Era.setTelemMetric('temp')">Temperature</button>
+          <button id="metric-btn-power" class="era-metric-btn" onclick="Era.setTelemMetric('power')">Power</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="era-telem-modal-hint">↻ every 10s</span>
+        <button class="era-chart-modal-close" onclick="Era.closeTelemModal()">&times;</button>
+      </div>
+    </div>
+    <div id="telem-modal-charts"></div>
+  </div>
+</div>
+
 <div id="chart-modal" class="era-chart-modal" onclick="Era.closeChartModal(event)">
   <div class="era-chart-modal-content" onclick="event.stopPropagation()">
     <div class="era-chart-modal-header">

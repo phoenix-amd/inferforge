@@ -135,9 +135,13 @@ const Era = {
         } catch (_) {}
     },
 
-    /* Telemetry history for charting — per node + combined */
-    _telemetryHistory: { labels: [], util: [], temp: [], power: [], nodes: {} },
+    /* Telemetry history — per node aggregates + per-GPU snapshots */
+    _telemetryHistory: { labels: [], nodes: {}, gpuSnapshot: {}, gpuHistory: {} },
     _TELEM_MAX_POINTS: 60,
+    _telemMetric: 'util',          // heatmap metric: util | temp | power
+    _inlineMetric: 'util',         // compact panel metric
+    _telemSelectedGpu: null,       // { nodeKey, gpuId } for drill-down
+    _telemView: 'heatmap',         // heatmap | timeline
 
     async refreshTelemetry() {
         if (!this._sessionActive) return;
@@ -174,7 +178,7 @@ const Era = {
                 if (badge) badge.textContent = 'LIVE';
             }
 
-            // Update telemetry chart history — per node
+            // Update telemetry history — per-node + per-GPU
             if (liveData && liveData.nodes) {
                 const now = new Date();
                 const timeLabel = now.getHours().toString().padStart(2, '0') + ':' +
@@ -189,19 +193,37 @@ const Era = {
                     const gpus = node.gpus || [];
                     if (gpus.length === 0) continue;
                     const nodeKey = node.ip || node.hostname;
-                    if (!h.nodes[nodeKey]) {
-                        h.nodes[nodeKey] = { ip: nodeKey, util: [], temp: [], power: [] };
-                    }
+
+                    // Per-node time-series
+                    if (!h.nodes[nodeKey]) h.nodes[nodeKey] = { ip: nodeKey, util: [], temp: [], power: [] };
                     const nd = h.nodes[nodeKey];
                     nd.util.push(node.avg_util || 0);
                     nd.temp.push(node.avg_temp || 0);
                     nd.power.push(node.total_power || 0);
-                    if (nd.util.length > this._TELEM_MAX_POINTS) {
-                        nd.util.shift(); nd.temp.shift(); nd.power.shift();
+                    if (nd.util.length > this._TELEM_MAX_POINTS) { nd.util.shift(); nd.temp.shift(); nd.power.shift(); }
+
+                    // Per-GPU snapshot (latest values for heatmap)
+                    h.gpuSnapshot[nodeKey] = gpus;
+
+                    // Per-GPU time-series (for drill-down charts)
+                    for (const g of gpus) {
+                        const gKey = nodeKey + ':' + g.gpu_id;
+                        if (!h.gpuHistory[gKey]) h.gpuHistory[gKey] = { util: [], temp: [], power: [] };
+                        const gh = h.gpuHistory[gKey];
+                        gh.util.push(g.utilization || 0);
+                        gh.temp.push(g.temperature || 0);
+                        gh.power.push(g.power || 0);
+                        if (gh.util.length > this._TELEM_MAX_POINTS) { gh.util.shift(); gh.temp.shift(); gh.power.shift(); }
                     }
                 }
 
-                if (Object.keys(h.nodes).length > 0) this._renderTelemetryChart();
+                if (Object.keys(h.nodes).length > 0) {
+                    this._renderTelemetryChart();
+                    this._renderInlineHeatmap();
+                    // Refresh modal if open
+                    const modal = document.getElementById('telem-modal');
+                    if (modal && modal.classList.contains('open')) this._renderTelemModal();
+                }
             }
         } catch (_) {
             const badge = document.getElementById('telemetry-status');
@@ -215,52 +237,398 @@ const Era = {
         const h = this._telemetryHistory;
         if (h.labels.length < 2) return;
 
-        // Fully distinct palettes per node — no color overlap
         const NODE_PALETTES = [
-            { util: '#00d4ff', temp: '#ffaa00', power: '#00c896' },   // .169: cyan / amber / green
-            { util: '#cc66ff', temp: '#ff5555', power: '#44eebb' },   // .209: purple / red / teal
-            { util: '#4488ff', temp: '#ff8844', power: '#88ff44' },   // node 3
+            { util: '#00d4ff', temp: '#ffaa00', power: '#00c896' },
+            { util: '#cc66ff', temp: '#ff5555', power: '#44eebb' },
+            { util: '#4488ff', temp: '#ff8844', power: '#88ff44' },
+            { util: '#ff4466', temp: '#ffcc00', power: '#00aaff' },
         ];
 
-        const series = [];
         const nodeKeys = Object.keys(h.nodes);
 
-        nodeKeys.forEach((key, i) => {
+        // --- Compact view: one UTIL line per node (clean, no overlap) ---
+        const compactSeries = nodeKeys.map((key, i) => {
             const nd = h.nodes[key];
             const pal = NODE_PALETTES[i % NODE_PALETTES.length];
-            const lbl = '.' + key.split('.').pop();
-            series.push({ name: lbl + ' UTIL', color: pal.util, unit: '%', data: nd.util });
-            series.push({ name: lbl + ' TEMP', color: pal.temp, unit: 'C', data: nd.temp });
-            series.push({ name: lbl + ' PWR',  color: pal.power, unit: 'W', data: nd.power });
+            const lastVal = nd.util[nd.util.length - 1] || 0;
+            return {
+                name: '.' + key.split('.').pop(),
+                color: pal.util,
+                unit: '%',
+                data: nd.util,
+                _lastUtil: lastVal,
+                _lastTemp: nd.temp[nd.temp.length - 1] || 0,
+                _lastPwr:  nd.power[nd.power.length - 1] || 0,
+                _pal: pal,
+                _key: key,
+            };
         });
 
         const h_px = canvas.parentElement?.clientHeight || 120;
-        Charts.drawMultiLineChart(canvas, series, h.labels, {
-            title: '',   // legend moved to HTML
+        Charts.drawMultiLineChart(canvas, compactSeries, h.labels, {
+            title: '',
             height: h_px,
             hideLegend: true,
         });
 
-        // Render HTML legend (wraps to multiple lines, always fully visible)
+        // Compact legend: node IP + current UTIL/TEMP/PWR inline
         const legendEl = document.getElementById('telem-legend');
         if (legendEl) {
-            legendEl.innerHTML = series.map(s => {
-                const lastVal = s.data[s.data.length - 1];
-                const valStr = lastVal != null ? lastVal.toFixed(0) + s.unit : '--';
-                return '<span class="era-telem-legend-item">' +
-                    '<span class="era-telem-legend-swatch" style="background:' + s.color + '"></span>' +
-                    s.name + ': <span class="era-telem-legend-val">' + valStr + '</span>' +
-                    '</span>';
-            }).join('');
+            legendEl.innerHTML = compactSeries.map(s =>
+                '<span class="era-telem-legend-item">' +
+                '<span class="era-telem-legend-swatch" style="background:' + s.color + '"></span>' +
+                '<span style="color:#aab">' + s._key + '</span> ' +
+                'UTIL:<span class="era-telem-legend-val" style="color:' + s._pal.util + '">' + s._lastUtil + '%</span> ' +
+                'TEMP:<span class="era-telem-legend-val" style="color:' + s._pal.temp + '">' + s._lastTemp + 'C</span> ' +
+                'PWR:<span class="era-telem-legend-val" style="color:' + s._pal.power + '">' + s._lastPwr + 'W</span>' +
+                '</span>'
+            ).join('');
+        }
+
+        // If modal is open, refresh it too
+        const modal = document.getElementById('telem-modal');
+        if (modal && modal.classList.contains('open')) {
+            this._renderTelemModal();
         }
     },
 
-    toggleTelemExpand() {
-        const wrap = document.getElementById('telem-chart-wrap');
-        if (!wrap) return;
-        wrap.classList.toggle('expanded');
-        // Re-render at new size
-        setTimeout(() => this._renderTelemetryChart(), 50);
+    _renderTelemModal() {
+        const h = this._telemetryHistory;
+        const container = document.getElementById('telem-modal-charts');
+        if (!container) return;
+
+        if (this._telemView === 'heatmap') {
+            this._renderHeatmap(container, h);
+        } else {
+            this._renderTimeline(container, h);
+        }
+    },
+
+    /* ---- Heatmap view (node × GPU grid) ---- */
+    _renderHeatmap(container, h) {
+        const nodeKeys = Object.keys(h.gpuSnapshot);
+        if (!nodeKeys.length) {
+            container.innerHTML = '<div style="padding:20px;color:var(--text-dim);font-family:var(--mono)">No GPU data yet — telemetry refreshes every 10s.</div>';
+            return;
+        }
+
+        const metric = this._telemMetric;
+        const maxGpus = Math.max(...nodeKeys.map(k => (h.gpuSnapshot[k] || []).length));
+
+        // Color scale function
+        const _color = (val, metric) => {
+            if (metric === 'util') {
+                if (val >= 90) return { bg: '#5f0000', fg: '#ff4466', bdr: '#ff2244' };
+                if (val >= 70) return { bg: '#4a3000', fg: '#ffaa00', bdr: '#ffaa00' };
+                if (val >= 30) return { bg: '#003a25', fg: '#00c896', bdr: '#00c896' };
+                if (val >= 5)  return { bg: '#001a12', fg: '#00885a', bdr: '#00663d' };
+                return { bg: '#0d0d14', fg: '#444466', bdr: '#222233' };
+            }
+            if (metric === 'temp') {
+                if (val >= 90) return { bg: '#5f0000', fg: '#ff4466', bdr: '#ff2244' };
+                if (val >= 75) return { bg: '#4a2000', fg: '#ff7700', bdr: '#ff5500' };
+                if (val >= 55) return { bg: '#3a2800', fg: '#ffaa00', bdr: '#ffaa00' };
+                if (val >= 35) return { bg: '#001a12', fg: '#00c896', bdr: '#00c896' };
+                return { bg: '#000d1a', fg: '#0088cc', bdr: '#004488' };
+            }
+            // power (normalize to 200W/GPU as 100%)
+            const pct = Math.min(val / 200 * 100, 100);
+            if (pct >= 85) return { bg: '#5f0000', fg: '#ff4466', bdr: '#ff2244' };
+            if (pct >= 60) return { bg: '#4a3000', fg: '#ffaa00', bdr: '#ffaa00' };
+            if (pct >= 30) return { bg: '#003a25', fg: '#00c896', bdr: '#00c896' };
+            return { bg: '#0d0d14', fg: '#444466', bdr: '#222233' };
+        };
+
+        const sel = this._telemSelectedGpu;
+
+        // Build header row
+        let gpuHeaders = '';
+        for (let g = 0; g < maxGpus; g++) {
+            gpuHeaders += '<th>GPU&nbsp;' + g + '</th>';
+        }
+
+        // Build node rows
+        let rows = '';
+        for (const nodeKey of nodeKeys) {
+            const gpus = h.gpuSnapshot[nodeKey] || [];
+            const nd = h.nodes[nodeKey] || {};
+            const lastUtil  = (nd.util  || [0]).slice(-1)[0] || 0;
+            const lastTemp  = (nd.temp  || [0]).slice(-1)[0] || 0;
+            const lastPwr   = (nd.power || [0]).slice(-1)[0] || 0;
+            const shortIp = nodeKey.split('.').slice(-2).join('.');
+
+            let cells = '';
+            for (let g = 0; g < maxGpus; g++) {
+                const gpu = gpus[g];
+                if (!gpu) { cells += '<td class="era-hm-cell era-hm-nodata">—</td>'; continue; }
+                let val = metric === 'util' ? gpu.utilization : metric === 'temp' ? gpu.temperature : gpu.power;
+                val = val || 0;
+                const c = _color(val, metric);
+                const isSelected = sel && sel.nodeKey === nodeKey && sel.gpuId === g;
+                const unit = metric === 'util' ? '%' : metric === 'temp' ? '°' : 'W';
+                cells += '<td class="era-hm-cell' + (isSelected ? ' selected' : '') + '"' +
+                    ' style="background:' + c.bg + ';color:' + c.fg + ';border-color:' + c.bdr + '"' +
+                    ' onclick="Era._selectGpu(\'' + nodeKey + '\',' + g + ')"' +
+                    ' title="' + nodeKey + ' GPU' + g + ': ' + val + unit + '">' +
+                    val + '</td>';
+            }
+
+            rows += '<tr>' +
+                '<td class="era-hm-node" title="' + nodeKey + '">' + shortIp + '</td>' +
+                cells +
+                '<td class="era-hm-summary">' +
+                '<span style="color:#00d4ff">' + lastUtil + '%</span> ' +
+                '<span style="color:#ffaa00">' + lastTemp + 'C</span> ' +
+                '<span style="color:#00c896">' + lastPwr + 'W</span>' +
+                '</td></tr>';
+        }
+
+        // Legend bar
+        const unit = metric === 'util' ? '%' : metric === 'temp' ? '°C' : 'W';
+        const legendRange = metric === 'util' ? '0 → 100' : metric === 'temp' ? '0 → 100' : '0 → 200';
+
+        container.innerHTML =
+            '<div class="era-hm-wrap">' +
+              '<div class="era-hm-left">' +
+                '<table class="era-hm-table">' +
+                  '<thead><tr><th>Node</th>' + gpuHeaders + '<th>Avg</th></tr></thead>' +
+                  '<tbody>' + rows + '</tbody>' +
+                '</table>' +
+                '<div class="era-hm-legend-bar">' +
+                  '<span style="font-size:9px;font-family:var(--mono);color:var(--text-dim)">' + legendRange + unit + '</span>' +
+                  '<div class="era-hm-gradient" style="background:linear-gradient(to right,' +
+                    (metric === 'util' ? '#0d0d14,#003a25,#00c896,#ffaa00,#ff4466' :
+                     metric === 'temp' ? '#000d1a,#003a25,#ffaa00,#ff4466' :
+                     '#0d0d14,#003a25,#00c896,#ffaa00,#ff4466') + ')"></div>' +
+                  '<div class="era-hm-legend-labels"><span>Low</span><span>High</span></div>' +
+                '</div>' +
+              '</div>' +
+              '<div class="era-hm-right" id="hm-drilldown">' +
+                (sel ? '' : '<div class="era-hm-hint">Click any GPU cell<br>for drill-down</div>') +
+              '</div>' +
+            '</div>';
+
+        if (sel) this._renderDrilldown(sel.nodeKey, sel.gpuId);
+    },
+
+    _selectGpu(nodeKey, gpuId) {
+        this._telemSelectedGpu = { nodeKey, gpuId };
+        // Re-render heatmap to highlight selected + show drill-down
+        const h = this._telemetryHistory;
+        const container = document.getElementById('telem-modal-charts');
+        if (container) this._renderHeatmap(container, h);
+    },
+
+    _renderDrilldown(nodeKey, gpuId) {
+        const h = this._telemetryHistory;
+        const panel = document.getElementById('hm-drilldown');
+        if (!panel) return;
+
+        const gKey = nodeKey + ':' + gpuId;
+        const gh = h.gpuHistory[gKey];
+        const snap = (h.gpuSnapshot[nodeKey] || [])[gpuId];
+        if (!snap) { panel.innerHTML = '<div class="era-hm-hint">No data for this GPU yet.<br>Telemetry refreshes every 10s.</div>'; return; }
+
+        const util  = snap.utilization || 0;
+        const temp  = snap.temperature || 0;
+        const power = snap.power || 0;
+        const lastLabel = h.labels[h.labels.length - 1] || '--';
+
+        const hasHistory = gh && h.labels.length >= 2;
+
+        panel.innerHTML =
+            '<div class="era-dd-header">' +
+              '<div class="era-dd-title">' + nodeKey + ' / GPU ' + gpuId + '</div>' +
+              '<div class="era-dd-sub">AMD Instinct MI300X</div>' +
+            '</div>' +
+
+            '<div class="era-dd-section">' +
+              '<div class="era-dd-section-header">' +
+                '<span class="era-dd-section-label">Utilization</span>' +
+                '<span class="era-dd-section-val" style="color:#00d4ff">' + util + '%</span>' +
+              '</div>' +
+              '<canvas id="dd-canvas-util" class="era-dd-canvas"></canvas>' +
+            '</div>' +
+
+            '<div class="era-dd-section">' +
+              '<div class="era-dd-section-header">' +
+                '<span class="era-dd-section-label">Hotspot Temperature</span>' +
+                '<span class="era-dd-section-val" style="color:#ffaa00">' + temp + '°C</span>' +
+              '</div>' +
+              '<canvas id="dd-canvas-temp" class="era-dd-canvas"></canvas>' +
+            '</div>' +
+
+            '<div class="era-dd-section">' +
+              '<div class="era-dd-section-header">' +
+                '<span class="era-dd-section-label">Power</span>' +
+                '<span class="era-dd-section-val" style="color:#00c896">' + power + 'W</span>' +
+              '</div>' +
+              '<canvas id="dd-canvas-pwr" class="era-dd-canvas"></canvas>' +
+            '</div>' +
+
+            '<div class="era-dd-footer">' +
+              '<span>Last sample: ' + lastLabel + '</span>' +
+              '<span>' + h.labels.length + ' points</span>' +
+            '</div>';
+
+        if (hasHistory) {
+            const opts = { height: 110, hideLegend: true };
+            Charts.drawMultiLineChart(document.getElementById('dd-canvas-util'),
+                [{ name: 'Utilization', color: '#00d4ff', unit: '%', data: gh.util }], h.labels, opts);
+            Charts.drawMultiLineChart(document.getElementById('dd-canvas-temp'),
+                [{ name: 'Temperature', color: '#ffaa00', unit: 'C', data: gh.temp }], h.labels, opts);
+            Charts.drawMultiLineChart(document.getElementById('dd-canvas-pwr'),
+                [{ name: 'Power', color: '#00c896', unit: 'W', data: gh.power }], h.labels, opts);
+        }
+    },
+
+    /* ---- Timeline view (per-node charts) ---- */
+    _renderTimeline(container, h) {
+        const nodeKeys = Object.keys(h.nodes);
+        if (!nodeKeys.length || h.labels.length < 2) {
+            container.innerHTML = '<div style="padding:20px;color:var(--text-dim);font-family:var(--mono)">No timeline data yet.</div>';
+            return;
+        }
+        const NODE_PALETTES = [
+            { util: '#00d4ff', temp: '#ffaa00', power: '#00c896' },
+            { util: '#cc66ff', temp: '#ff5555', power: '#44eebb' },
+            { util: '#4488ff', temp: '#ff8844', power: '#88ff44' },
+        ];
+        container.innerHTML = '';
+        nodeKeys.forEach((key, i) => {
+            const nd = h.nodes[key];
+            const pal = NODE_PALETTES[i % NODE_PALETTES.length];
+            const lastUtil  = (nd.util || [0]).slice(-1)[0] || 0;
+            const lastTemp  = (nd.temp || [0]).slice(-1)[0] || 0;
+            const lastPwr   = (nd.power || [0]).slice(-1)[0] || 0;
+            const card = document.createElement('div');
+            card.className = 'era-node-chart-card';
+            card.innerHTML =
+                '<div class="era-node-chart-title">' +
+                '<span style="color:' + pal.util + '">' + key + '</span>' +
+                '<span class="badge">MI300X · 8 GPUs</span>' +
+                '</div>' +
+                '<div class="era-node-chart-stats">' +
+                '<span><span class="stat-k">UTIL</span><span class="stat-v" style="color:' + pal.util + '">' + lastUtil + '%</span></span>' +
+                '<span><span class="stat-k">TEMP</span><span class="stat-v" style="color:' + pal.temp + '">' + lastTemp + 'C</span></span>' +
+                '<span><span class="stat-k">PWR</span><span class="stat-v" style="color:' + pal.power + '">' + lastPwr + 'W</span></span>' +
+                '</div>' +
+                '<canvas id="telem-canvas-' + i + '"></canvas>';
+            container.appendChild(card);
+            const canvas = document.getElementById('telem-canvas-' + i);
+            if (canvas) {
+                Charts.drawMultiLineChart(canvas, [
+                    { name: 'UTIL', color: pal.util,  unit: '%', data: nd.util  },
+                    { name: 'TEMP', color: pal.temp,  unit: 'C', data: nd.temp  },
+                    { name: 'PWR',  color: pal.power, unit: 'W', data: nd.power },
+                ], h.labels, { title: '', height: 180, hideLegend: false });
+            }
+        });
+    },
+
+    /* Inline heatmap (compact, inside main telemetry panel) */
+    setInlineMetric(metric) {
+        this._inlineMetric = metric;
+        ['util','temp','power'].forEach(m => {
+            const btn = document.getElementById('inline-metric-' + m);
+            if (btn) btn.classList.toggle('active', m === metric);
+        });
+        this._renderInlineHeatmap();
+    },
+
+    _renderInlineHeatmap() {
+        const h = this._telemetryHistory;
+        const el = document.getElementById('inline-heatmap');
+        if (!el) return;
+
+        const nodeKeys = Object.keys(h.gpuSnapshot);
+        if (!nodeKeys.length) {
+            el.innerHTML = '<div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);padding:4px 0">No live GPU data — click Detect GPUs</div>';
+            return;
+        }
+
+        const metric = this._inlineMetric;
+        const maxGpus = Math.max(...nodeKeys.map(k => (h.gpuSnapshot[k] || []).length));
+
+        const _color = (val, metric) => {
+            if (metric === 'util') {
+                if (val >= 90) return { bg: '#5f0000', fg: '#ff4466' };
+                if (val >= 70) return { bg: '#4a3000', fg: '#ffaa00' };
+                if (val >= 30) return { bg: '#003a25', fg: '#00c896' };
+                if (val >= 5)  return { bg: '#001a12', fg: '#00885a' };
+                return { bg: '#0d0d14', fg: '#333355' };
+            }
+            if (metric === 'temp') {
+                if (val >= 90) return { bg: '#5f0000', fg: '#ff4466' };
+                if (val >= 75) return { bg: '#4a2000', fg: '#ff7700' };
+                if (val >= 55) return { bg: '#3a2800', fg: '#ffaa00' };
+                if (val >= 35) return { bg: '#001a12', fg: '#00c896' };
+                return { bg: '#000d1a', fg: '#0088cc' };
+            }
+            const pct = Math.min(val / 200 * 100, 100);
+            if (pct >= 85) return { bg: '#5f0000', fg: '#ff4466' };
+            if (pct >= 60) return { bg: '#4a3000', fg: '#ffaa00' };
+            if (pct >= 30) return { bg: '#003a25', fg: '#00c896' };
+            return { bg: '#0d0d14', fg: '#333355' };
+        };
+
+        const unit = metric === 'util' ? '%' : metric === 'temp' ? '°' : 'W';
+
+        let html = '<table class="era-inline-hm-table">';
+        // Header
+        html += '<tr><th></th>';
+        for (let g = 0; g < maxGpus; g++) html += '<th>G' + g + '</th>';
+        html += '</tr>';
+
+        for (const nodeKey of nodeKeys) {
+            const gpus = h.gpuSnapshot[nodeKey] || [];
+            const shortIp = nodeKey.split('.').slice(-2).join('.');
+            html += '<tr><td class="era-inline-hm-node">' + shortIp + '</td>';
+            for (let g = 0; g < maxGpus; g++) {
+                const gpu = gpus[g];
+                if (!gpu) { html += '<td class="era-inline-hm-cell" style="color:#333">—</td>'; continue; }
+                const val = metric === 'util' ? (gpu.utilization || 0) : metric === 'temp' ? (gpu.temperature || 0) : (gpu.power || 0);
+                const c = _color(val, metric);
+                html += '<td class="era-inline-hm-cell" style="background:' + c.bg + ';color:' + c.fg + '"' +
+                    ' onclick="Era.openTelemModal()" title="' + nodeKey + ' GPU' + g + ': ' + val + unit + '">' +
+                    val + '</td>';
+            }
+            html += '</tr>';
+        }
+        html += '</table>';
+        el.innerHTML = html;
+    },
+
+    setTelemView(view) {
+        this._telemView = view;
+        document.querySelectorAll('.era-telem-tab').forEach(b => b.classList.remove('active'));
+        const btn = document.getElementById('telem-tab-' + view);
+        if (btn) btn.classList.add('active');
+        this._renderTelemModal();
+    },
+
+    setTelemMetric(metric) {
+        this._telemMetric = metric;
+        document.querySelectorAll('.era-metric-btn').forEach(b => b.classList.remove('active'));
+        const btn = document.getElementById('metric-btn-' + metric);
+        if (btn) btn.classList.add('active');
+        if (this._telemView === 'heatmap') {
+            const h = this._telemetryHistory;
+            const container = document.getElementById('telem-modal-charts');
+            if (container) this._renderHeatmap(container, h);
+        }
+    },
+
+    openTelemModal() {
+        const modal = document.getElementById('telem-modal');
+        if (!modal) return;
+        modal.classList.add('open');
+        this._renderTelemModal();
+    },
+
+    closeTelemModal(e) {
+        const modal = document.getElementById('telem-modal');
+        if (modal) modal.classList.remove('open');
     },
 
     _renderTelemetry(nodes) {
@@ -1294,10 +1662,13 @@ const Era = {
         this._setText('era-node-count', '0');
         this._setText('era-gpu-count', '0');
 
+        // Clear inline heatmap
+        const ih = document.getElementById('inline-heatmap');
+        if (ih) ih.innerHTML = '';
         // Clear telemetry chart
         const tc = document.getElementById('canvas-telemetry');
         if (tc) { const ctx = tc.getContext('2d'); ctx.clearRect(0, 0, tc.width, tc.height); }
-        this._telemetryHistory = { labels: [], util: [], temp: [], power: [], nodes: {} };
+        this._telemetryHistory = { labels: [], nodes: {}, gpuSnapshot: {}, gpuHistory: {} };
     },
 
     /** Show empty/clean benchmark charts and metrics */
