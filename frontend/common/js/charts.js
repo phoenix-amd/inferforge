@@ -407,6 +407,7 @@ const Charts = {
                 ctx.fillText(durStr, x1 + barW / 2, y + rowH / 2 + 1);
             }
         });
+        this._attachZoom(canvas);
     },
 
     /**

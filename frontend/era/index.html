@@ -120,10 +120,11 @@
           <select class="era-panel-select" id="timeline-session-select" onchange="Era.loadTimeline()">
             <option value="">Select Session</option>
           </select>
+          <button class="era-panel-btn" onclick="Era.openTimelineModal()" title="Expand timeline">⤢</button>
         </div>
       </div>
       <div class="era-panel-body" id="timeline-body">
-        <canvas id="canvas-gantt"></canvas>
+        <canvas id="canvas-gantt" style="cursor:pointer" onclick="Era.openTimelineModal()" title="Click to expand"></canvas>
         <div class="era-phase-legend" id="phase-legend">
           <span class="era-legend-item"><span class="era-legend-swatch" style="background:#4488ff"></span>PRELUDE</span>
           <span class="era-legend-item"><span class="era-legend-swatch" style="background:#ffaa00"></span>ENABLEMENT</span>
@@ -452,6 +453,30 @@
 </div><!-- /app -->
 
 <!-- Chart Expand Modal -->
+<!-- Optimization Timeline expand modal -->
+<div id="timeline-modal" class="era-telem-modal" onclick="Era.closeTimelineModal(event)">
+  <div class="era-telem-modal-content" onclick="event.stopPropagation()" style="max-width:1100px;height:70vh">
+    <div class="era-telem-modal-header">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span class="era-telem-modal-title">OPTIMIZATION TIMELINE</span>
+        <span class="era-panel-badge badge-amber" id="timeline-modal-phase">--</span>
+      </div>
+      <button class="era-chart-modal-close" onclick="Era.closeTimelineModal()">&times;</button>
+    </div>
+    <div style="flex:1;padding:12px;overflow:hidden;display:flex;flex-direction:column;gap:8px">
+      <canvas id="canvas-gantt-modal" style="flex:1;width:100%"></canvas>
+      <div class="era-phase-legend" style="flex-shrink:0;font-size:11px;gap:16px">
+        <span class="era-legend-item"><span class="era-legend-swatch" style="background:#4488ff;width:20px;height:5px"></span>PRELUDE</span>
+        <span class="era-legend-item"><span class="era-legend-swatch" style="background:#ffaa00;width:20px;height:5px"></span>ENABLEMENT</span>
+        <span class="era-legend-item"><span class="era-legend-swatch" style="background:#00c896;width:20px;height:5px"></span>FRAMEWORK</span>
+        <span class="era-legend-item"><span class="era-legend-swatch" style="background:#8866ff;width:20px;height:5px"></span>KERNEL</span>
+        <span class="era-legend-item"><span class="era-legend-swatch" style="background:#00d4ff;width:20px;height:5px"></span>SWEEP</span>
+        <span class="era-legend-item"><span class="era-legend-swatch" style="background:#666680;width:20px;height:5px"></span>CLOSE</span>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Telemetry expand modal -->
 <div id="telem-modal" class="era-telem-modal" onclick="Era.closeTelemModal(event)">
   <div class="era-telem-modal-content" onclick="event.stopPropagation()">

@@ -1007,16 +1007,60 @@ const Era = {
         if (modal) modal.classList.remove('open');
     },
 
+    openTimelineModal() {
+        const modal = document.getElementById('timeline-modal');
+        if (!modal) return;
+        modal.classList.add('open');
+        // Re-render Gantt at full modal size
+        const sel = document.getElementById('timeline-session-select');
+        const sessionId = sel ? sel.value : '';
+        if (!sessionId) return;
+        API.get('/hyperloom/sessions/' + sessionId + '/timeline').then(data => {
+            if (!data || !data.phases) return;
+            const phaseColors = {
+                'PRELUDE': '#4488ff', 'ENABLEMENT': '#ffaa00',
+                'FRAMEWORK_AGENT': '#00c896', 'KERNEL_AGENT': '#8866ff',
+                'SWEEP': '#00d4ff', 'CLOSE': '#666680',
+            };
+            const events = data.phases.map(p => ({
+                label: p.name || p.phase || '',
+                start: p.start_time || 0,
+                end: p.end_time || p.start_time + (p.duration || 60),
+                color: phaseColors[p.name] || phaseColors[p.phase] || '#4488ff',
+                status: p.status || 'complete',
+            }));
+            const canvas = document.getElementById('canvas-gantt-modal');
+            if (canvas && events.length > 0) {
+                const wrap = canvas.parentElement;
+                const h = (wrap?.clientHeight || 300) - 50;
+                Charts.drawGanttChart(canvas, events, { title: 'Hyperloom Optimization Phases', rowHeight: 32, height: h });
+            }
+            const phase = document.getElementById('timeline-modal-phase');
+            if (phase) phase.textContent = (data.current_phase || '--').toUpperCase();
+        }).catch(() => {});
+    },
+
+    closeTimelineModal(e) {
+        const modal = document.getElementById('timeline-modal');
+        if (modal) modal.classList.remove('open');
+    },
+
     _renderBenchmarkMetrics(runs) {
         if (!runs.length) return;
 
+        // Best throughput across all runs (includes sims)
         const best = runs.reduce((a, b) =>
-            this._getThroughput(b) > this._getThroughput(a) ? b : a
-        , runs[0]);
+            this._getThroughput(b) > this._getThroughput(a) ? b : a, runs[0]);
+
+        // TTFT and ITL only from REAL runs (TTFT > 0) — sims have no measured latency
+        const realRuns = runs.filter(r => this._getTTFT(r) > 0);
+        const bestReal = realRuns.length > 0
+            ? realRuns.reduce((a, b) => this._getThroughput(b) > this._getThroughput(a) ? b : a, realRuns[0])
+            : null;
 
         this._setText('metric-throughput', Math.round(this._getThroughput(best)));
-        this._setText('metric-ttft', Math.round(this._getTTFT(best)));
-        this._setText('metric-itl', (best.itl_p99 || best.itl_p50 || best.itl || 0).toFixed(1));
+        this._setText('metric-ttft', bestReal ? Math.round(this._getTTFT(bestReal)) : '--');
+        this._setText('metric-itl', bestReal ? (bestReal.itl_p99 || bestReal.itl_p50 || bestReal.itl || 0).toFixed(1) : '--');
         this._setText('metric-tp', 'TP' + (best.tp || best.tensor_parallel || '--'));
     },
 
