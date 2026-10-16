@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>InferForge Nova -- DevOps Dashboard</title>
+
+<!-- Common CSS -->
+<link rel="stylesheet" href="/common/css/variables.css">
+<link rel="stylesheet" href="/common/css/base.css">
+<link rel="stylesheet" href="/common/css/components.css">
+<link rel="stylesheet" href="/common/css/chat.css">
+<link rel="stylesheet" href="/common/css/tables.css">
+
+<!-- Nova Theme CSS -->
+<link rel="stylesheet" href="/nova/css/nova.css">
+
+<!-- CDN: markdown-it -->
+<script src="https://cdn.jsdelivr.net/npm/markdown-it@14/dist/markdown-it.min.js"></script>
+</head>
+<body>
+
+<div class="nova-app" id="nova-app">
+
+  <!-- ==============================
+       TOP BAR
+       ============================== -->
+  <header class="nova-topbar">
+    <div class="nova-topbar-left">
+      <span class="nova-logo-mark"></span>
+      <span class="nova-logo-text">InferForge</span>
+      <span class="nova-logo-tag">Nova</span>
+    </div>
+    <div class="nova-topbar-center">
+      <div class="nova-status-group">
+        <span class="nova-status-indicator" id="nova-status-dot"></span>
+        <span class="nova-status-label" id="nova-status-text">Connecting...</span>
+      </div>
+    </div>
+    <div class="nova-topbar-right">
+      <button class="btn-stop" id="nova-btn-stop" onclick="Nova.stopJob()" title="Stop running job">STOP</button>
+      <span class="nova-topbar-meta" id="nova-gpu-badge">No GPUs detected</span>
+      <div class="ui-switcher">
+        <a href="/" class="ui-switcher-btn">Classic</a>
+        <a href="/nova" class="ui-switcher-btn active">Nova</a>
+        <a href="/era" class="ui-switcher-btn">Era</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- ==============================
+       FLEET CARDS (horizontal scroll)
+       ============================== -->
+  <section class="nova-fleet-strip" id="nova-fleet-strip">
+    <div class="nova-fleet-scroll" id="nova-fleet-scroll">
+      <!-- Fleet cards rendered by JS -->
+      <div class="nova-fleet-placeholder" id="nova-fleet-placeholder">
+        <span class="nova-fleet-placeholder-text">No fleet nodes configured. Use the Wizard to add cluster nodes.</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==============================
+       TAB BAR
+       ============================== -->
+  <nav class="nova-tab-bar">
+    <button class="nova-tab active" data-tab="wizard">Wizard</button>
+    <button class="nova-tab" data-tab="sessions">Sessions</button>
+    <button class="nova-tab" data-tab="campaigns">Campaigns</button>
+    <button class="nova-tab" data-tab="recipes">Recipes</button>
+    <button class="nova-tab" data-tab="deployments">Deployments</button>
+    <div class="nova-tab-indicator" id="nova-tab-indicator"></div>
+  </nav>
+
+  <!-- ==============================
+       MAIN CONTENT AREA
+       ============================== -->
+  <main class="nova-main" id="nova-main">
+
+    <!-- ========================
+         TAB: WIZARD
+         ======================== -->
+    <div class="nova-tab-panel active" id="panel-wizard">
+
+      <!-- Step Indicators -->
+      <div class="nova-wizard-steps" id="nova-wizard-steps">
+        <div class="nova-step active" data-step="1">
+          <div class="nova-step-circle">1</div>
+          <div class="nova-step-label">Model</div>
+        </div>
+        <div class="nova-step-line"></div>
+        <div class="nova-step" data-step="2">
+          <div class="nova-step-circle">2</div>
+          <div class="nova-step-label">Framework</div>
+        </div>
+        <div class="nova-step-line"></div>
+        <div class="nova-step" data-step="3">
+          <div class="nova-step-circle">3</div>
+          <div class="nova-step-label">Topology</div>
+        </div>
+        <div class="nova-step-line"></div>
+        <div class="nova-step" data-step="4">
+          <div class="nova-step-circle">4</div>
+          <div class="nova-step-label">SLA Targets</div>
+        </div>
+        <div class="nova-step-line"></div>
+        <div class="nova-step" data-step="5">
+          <div class="nova-step-circle">5</div>
+          <div class="nova-step-label">Review</div>
+        </div>
+      </div>
+
+      <!-- Step Content Container -->
+      <div class="nova-wizard-body" id="nova-wizard-body">
+
+        <!-- Step 1: Select Model -->
+        <div class="nova-wizard-step active" id="wiz-step-1">
+          <h3 class="nova-wizard-title">Select Model</h3>
+          <p class="nova-wizard-desc">Choose an LLM from the registry or enter a custom HuggingFace model ID.</p>
+          <div class="nova-form-group">
+            <label class="nova-label">Model</label>
+            <select id="wiz-model" class="nova-select" onchange="Nova.onWizModelChange()">
+              <option value="">-- Select a model --</option>
+              <option value="meta-llama/Llama-3.1-8B-Instruct">Llama 3.1 8B Instruct</option>
+              <option value="meta-llama/Llama-3.1-70B-Instruct">Llama 3.1 70B Instruct</option>
+              <option value="meta-llama/Llama-3.1-405B-Instruct">Llama 3.1 405B Instruct</option>
+              <option value="mistralai/Mixtral-8x7B-Instruct-v0.1">Mixtral 8x7B Instruct</option>
+              <option value="Qwen/Qwen2.5-72B-Instruct">Qwen 2.5 72B Instruct</option>
+              <option value="deepseek-ai/DeepSeek-V3">DeepSeek V3</option>
+              <option value="deepseek-ai/DeepSeek-R1">DeepSeek R1</option>
+              <option value="microsoft/phi-4">Phi-4</option>
+              <option value="google/gemma-2-27b-it">Gemma 2 27B IT</option>
+              <option value="custom">Custom HuggingFace Model</option>
+            </select>
+          </div>
+          <div class="nova-form-group hidden" id="wiz-custom-wrap">
+            <label class="nova-label">HuggingFace Model ID</label>
+            <input type="text" id="wiz-custom-id" class="nova-input" placeholder="org/model-name">
+          </div>
+          <div class="nova-form-row">
+            <div class="nova-form-group">
+              <label class="nova-label">Weight Dtype</label>
+              <select id="wiz-dtype" class="nova-select">
+                <option value="bf16" selected>BFloat16</option>
+                <option value="fp16">Float16</option>
+                <option value="fp8">FP8</option>
+                <option value="int8">INT8</option>
+              </select>
+            </div>
+            <div class="nova-form-group">
+              <label class="nova-label">KV Dtype</label>
+              <select id="wiz-kv-dtype" class="nova-select">
+                <option value="">Same as weight</option>
+                <option value="fp8">FP8</option>
+                <option value="bf16">BFloat16</option>
+              </select>
+            </div>
+          </div>
+          <div class="nova-form-group">
+            <label class="nova-label">Sequence Length</label>
+            <input type="number" id="wiz-seq-len" class="nova-input" value="4096" min="128" step="128">
+          </div>
+        </div>
+
+        <!-- Step 2: Choose Framework -->
+        <div class="nova-wizard-step" id="wiz-step-2">
+          <h3 class="nova-wizard-title">Choose Framework</h3>
+          <p class="nova-wizard-desc">Select the inference serving framework to benchmark.</p>
+          <div class="nova-framework-grid">
+            <label class="nova-framework-card selected" data-fw="vllm">
+              <input type="radio" name="wiz-framework" value="vllm" checked>
+              <div class="nova-fw-name">vLLM</div>
+              <div class="nova-fw-desc">High-throughput serving with PagedAttention. ROCm optimized.</div>
+              <div class="nova-fw-tag">Recommended</div>
+            </label>
+            <label class="nova-framework-card" data-fw="sglang">
+              <input type="radio" name="wiz-framework" value="sglang">
+              <div class="nova-fw-name">SGLang</div>
+              <div class="nova-fw-desc">Structured generation with RadixAttention. Fast batch inference.</div>
+              <div class="nova-fw-tag">Alternative</div>
+            </label>
+            <label class="nova-framework-card" data-fw="tgi">
+              <input type="radio" name="wiz-framework" value="tgi">
+              <div class="nova-fw-name">TGI</div>
+              <div class="nova-fw-desc">HuggingFace Text Generation Inference. Production-grade serving.</div>
+              <div class="nova-fw-tag">HuggingFace</div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Step 3: Configure Topology -->
+        <div class="nova-wizard-step" id="wiz-step-3">
+          <h3 class="nova-wizard-title">Configure Topology</h3>
+          <p class="nova-wizard-desc">Set cluster connection details and GPU topology.</p>
+          <div class="nova-form-group">
+            <label class="nova-label">Head Node IP</label>
+            <input type="text" id="wiz-head" class="nova-input" placeholder="10.0.0.1">
+          </div>
+          <div class="nova-form-group">
+            <label class="nova-label">Worker Nodes <span class="nova-hint">(comma-separated, optional)</span></label>
+            <input type="text" id="wiz-workers" class="nova-input" placeholder="10.0.0.2, 10.0.0.3">
+          </div>
+          <div class="nova-form-row">
+            <div class="nova-form-group">
+              <label class="nova-label">SSH User</label>
+              <input type="text" id="wiz-user" class="nova-input" placeholder="root">
+            </div>
+            <div class="nova-form-group">
+              <label class="nova-label">SSH Key</label>
+              <input type="text" id="wiz-key" class="nova-input" placeholder="~/.ssh/id_ed25519">
+            </div>
+          </div>
+          <div class="nova-form-group">
+            <label class="nova-label">Model Path on Node <span class="nova-hint">(Real Run only)</span></label>
+            <input type="text" id="wiz-model-path" class="nova-input" placeholder="/models/llama-70b">
+          </div>
+          <div class="nova-form-group">
+            <label class="nova-label">Run Type</label>
+            <select id="wiz-runtype" class="nova-select">
+              <option value="simulation" selected>Simulation (memory analysis only)</option>
+              <option value="real">Real Run (actual benchmark on cluster)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Step 4: Set SLA Targets -->
+        <div class="nova-wizard-step" id="wiz-step-4">
+          <h3 class="nova-wizard-title">Set SLA Targets</h3>
+          <p class="nova-wizard-desc">Define performance targets for the benchmark. Leave blank to skip SLA enforcement.</p>
+          <div class="nova-form-row">
+            <div class="nova-form-group">
+              <label class="nova-label">Max TTFT (ms)</label>
+              <input type="number" id="wiz-sla-ttft" class="nova-input" placeholder="500">
+            </div>
+            <div class="nova-form-group">
+              <label class="nova-label">Max TPOT (ms)</label>
+              <input type="number" id="wiz-sla-tpot" class="nova-input" placeholder="50">
+            </div>
+          </div>
+          <div class="nova-form-row">
+            <div class="nova-form-group">
+              <label class="nova-label">Min Throughput (tok/s)</label>
+              <input type="number" id="wiz-sla-throughput" class="nova-input" placeholder="1000">
+            </div>
+            <div class="nova-form-group">
+              <label class="nova-label">Max E2E Latency (ms)</label>
+              <input type="number" id="wiz-sla-e2e" class="nova-input" placeholder="10000">
+            </div>
+          </div>
+          <div class="nova-form-group">
+            <label class="nova-label">Execution Mode</label>
+            <select id="wiz-exec-mode" class="nova-select">
+              <option value="interactive">Interactive (confirm each step)</option>
+              <option value="autonomous" selected>Autonomous (full pipeline)</option>
+              <option value="batch">Batch (minimal output)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Step 5: Review & Launch -->
+        <div class="nova-wizard-step" id="wiz-step-5">
+          <h3 class="nova-wizard-title">Review &amp; Launch</h3>
+          <p class="nova-wizard-desc">Confirm your configuration before launching the optimization pipeline.</p>
+          <div class="nova-review-table" id="nova-review-table">
+            <!-- Populated by JS -->
+          </div>
+          <div class="nova-review-actions">
+            <button class="nova-btn-launch" id="nova-btn-launch" onclick="Nova.launchFromWizard()">
+              Launch Pipeline
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Wizard Navigation -->
+      <div class="nova-wizard-nav">
+        <button class="btn-secondary nova-wiz-back" id="nova-wiz-back" onclick="Nova.wizPrev()" disabled>Back</button>
+        <div class="nova-wizard-nav-spacer"></div>
+        <button class="btn-primary nova-wiz-next" id="nova-wiz-next" onclick="Nova.wizNext()">Next</button>
+      </div>
+    </div>
+
+    <!-- ========================
+         TAB: SESSIONS
+         ======================== -->
+    <div class="nova-tab-panel" id="panel-sessions">
+      <div class="nova-panel-header">
+        <h2>Hyperloom Sessions</h2>
+        <div class="nova-panel-actions">
+          <button class="btn-secondary" onclick="Nova.importSession()">Import</button>
+          <button class="btn-primary" onclick="Nova.launchSession()">Launch New</button>
+        </div>
+      </div>
+      <div class="data-table-container" id="nova-sessions-list">
+        <div class="empty-state">
+          <div class="empty-title">No Sessions Yet</div>
+          <div class="empty-desc">Launch a Hyperloom optimization session from the Wizard tab.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================
+         TAB: CAMPAIGNS
+         ======================== -->
+    <div class="nova-tab-panel" id="panel-campaigns">
+      <div class="nova-panel-header">
+        <h2>Campaigns</h2>
+        <button class="btn-primary" onclick="Nova.createCampaign()">New Campaign</button>
+      </div>
+      <div class="data-table-container" id="nova-campaigns-list">
+        <div class="empty-state">
+          <div class="empty-title">No Campaigns</div>
+          <div class="empty-desc">Create a multi-framework comparison campaign from the Wizard.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================
+         TAB: RECIPES
+         ======================== -->
+    <div class="nova-tab-panel" id="panel-recipes">
+      <div class="nova-panel-header">
+        <h2>Recipe Browser</h2>
+        <div class="nova-panel-actions">
+          <input type="text" id="nova-recipe-search" placeholder="Search recipes..." class="search-input">
+          <button class="btn-secondary" onclick="Nova.syncRecipes()">Sync from KB</button>
+        </div>
+      </div>
+      <div class="data-table-container" id="nova-recipes-list">
+        <div class="empty-state">
+          <div class="empty-title">No Recipes Available</div>
+          <div class="empty-desc">Sync recipes from the knowledge base or create a configuration recipe.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================
+         TAB: DEPLOYMENTS
+         ======================== -->
+    <div class="nova-tab-panel" id="panel-deployments">
+      <div class="nova-panel-header">
+        <h2>Deployments</h2>
+      </div>
+      <div class="data-table-container" id="nova-deployments-list">
+        <div class="empty-state">
+          <div class="empty-title">No Active Deployments</div>
+          <div class="empty-desc">Deploy an optimized configuration from a completed benchmark session.</div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ==============================
+       CHAT SLIDE-OUT PANEL (bottom)
+       ============================== -->
+  <div class="nova-chat-panel" id="nova-chat-panel">
+
+    <!-- Chat Header (click to toggle expand) -->
+    <div class="nova-chat-header" id="nova-chat-header" onclick="Nova.toggleChat()">
+      <div class="nova-chat-header-left">
+        <span class="nova-chat-avatar">IF</span>
+        <span class="nova-chat-title">Ask InferForge</span>
+        <span class="nova-chat-badge" id="nova-chat-badge"></span>
+      </div>
+      <div class="nova-chat-header-right">
+        <button class="btn-icon nova-chat-minimize" id="nova-chat-toggle-btn" title="Toggle chat">
+          <span id="nova-chat-toggle-icon">&#9650;</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Chat Messages (visible when expanded) -->
+    <div class="nova-chat-messages" id="nova-chat-messages">
+      <!-- Messages rendered here -->
+    </div>
+
+    <!-- Chat Input (always visible) -->
+    <div class="nova-chat-input-area" id="nova-chat-input-area">
+      <div class="nova-chat-controls">
+        <select id="nova-sel-skill" class="nova-chat-select" title="Skill">
+          <option value="">Auto</option>
+          <option value="inference-optimize" selected>inference-optimize</option>
+          <option value="model-profiler">model-profiler</option>
+          <option value="benchmark-runner">benchmark-runner</option>
+        </select>
+        <select id="nova-sel-mode" class="nova-chat-select" title="Mode">
+          <option value="interactive">Interactive</option>
+          <option value="autonomous" selected>Autonomous</option>
+          <option value="batch">Batch</option>
+        </select>
+      </div>
+      <div class="nova-chat-input-row">
+        <textarea id="nova-chat-input" class="nova-chat-textarea"
+          placeholder="Ask about inference optimization..."
+          rows="1"
+          onkeydown="Nova.handleChatKey(event)"
+          oninput="Nova.autoResize(this)"
+          onfocus="Nova.expandChat()"></textarea>
+        <button id="nova-btn-send" class="nova-btn-send" onclick="Nova.sendMessage()">Send</button>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<!-- Common JS -->
+<script src="/common/js/api.js"></script>
+<script src="/common/js/state.js"></script>
+<script src="/common/js/markdown.js"></script>
+<script src="/common/js/chat.js"></script>
+<script src="/common/js/charts.js"></script>
+
+<!-- Nova JS -->
+<script src="/nova/js/nova.js"></script>
+
+</body>
+</html>

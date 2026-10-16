@@ -1,0 +1,252 @@
+/* InferForge -- Data Table Styles
+   ================================= */
+
+/* ==================================
+   TABLE CONTAINER
+   ================================== */
+.data-table-container {
+    overflow-x: auto;
+    padding: 0 24px 24px;
+}
+
+/* ==================================
+   DATA TABLE
+   ================================== */
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--text-sm);
+}
+
+.data-table th,
+.data-table td {
+    padding: 8px 14px;
+    border: 1px solid var(--border);
+    text-align: left;
+    white-space: nowrap;
+}
+
+/* Header */
+.data-table thead th {
+    background: var(--bg-secondary);
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    font-size: var(--text-xs);
+    letter-spacing: 0.04em;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+/* Sortable headers */
+.data-table th.sortable {
+    cursor: pointer;
+    user-select: none;
+    transition: color var(--transition-fast);
+}
+
+.data-table th.sortable:hover {
+    color: var(--text);
+}
+
+.data-table th.sortable::after {
+    content: '';
+    display: inline-block;
+    width: 0;
+    height: 0;
+    margin-left: 6px;
+    vertical-align: middle;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 4px solid var(--text-dim);
+    opacity: 0.4;
+}
+
+.data-table th.sort-asc::after {
+    border-top: none;
+    border-bottom: 4px solid var(--blue);
+    opacity: 1;
+}
+
+.data-table th.sort-desc::after {
+    border-top: 4px solid var(--blue);
+    opacity: 1;
+}
+
+/* Rows */
+.data-table tbody tr {
+    transition: background var(--transition-fast);
+}
+
+.data-table tbody tr:hover {
+    background: var(--bg-hover);
+}
+
+/* Striped rows */
+.data-table.striped tbody tr:nth-child(even) {
+    background: rgba(26, 26, 46, 0.4);
+}
+
+.data-table.striped tbody tr:nth-child(even):hover {
+    background: var(--bg-hover);
+}
+
+
+/* ==================================
+   METRIC HIGHLIGHT CELLS
+   ================================== */
+.data-table td.metric-good {
+    color: var(--green);
+    font-weight: 600;
+}
+
+.data-table td.metric-bad {
+    color: var(--red);
+    font-weight: 600;
+}
+
+.data-table td.metric-warn {
+    color: var(--amber);
+    font-weight: 600;
+}
+
+.data-table td.metric-best {
+    color: var(--green);
+    font-weight: 700;
+    background: var(--green-dim);
+}
+
+.data-table td.metric-neutral {
+    color: var(--text-muted);
+}
+
+/* Numeric / mono cells */
+.data-table td.num {
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+    text-align: right;
+}
+
+
+/* ==================================
+   INLINE SPARKLINES / BAR CELLS
+   ================================== */
+.cell-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cell-bar-track {
+    flex: 1;
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.cell-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width var(--transition);
+}
+
+.cell-bar-fill.green  { background: var(--green); }
+.cell-bar-fill.blue   { background: var(--blue); }
+.cell-bar-fill.amber  { background: var(--amber); }
+.cell-bar-fill.red    { background: var(--red); }
+
+.cell-bar-label {
+    font-size: var(--text-xs);
+    font-family: var(--mono);
+    color: var(--text-muted);
+    min-width: 36px;
+    text-align: right;
+}
+
+
+/* ==================================
+   RESULTS TABLE (benchmark output)
+   ================================== */
+.results-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--text-sm);
+    margin: 10px 0;
+}
+
+.results-table th,
+.results-table td {
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    text-align: left;
+}
+
+.results-table th {
+    background: var(--bg-secondary);
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    font-size: var(--text-xs);
+    letter-spacing: 0.04em;
+}
+
+.results-table tr:hover { background: var(--bg-hover); }
+.results-table td.pass  { color: var(--green); }
+.results-table td.fail  { color: var(--red); }
+.results-table td.best  { color: var(--green); font-weight: 700; }
+
+
+/* ==================================
+   RESPONSIVE TABLE WRAPPER
+   ================================== */
+.table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.table-responsive::-webkit-scrollbar {
+    height: 4px;
+}
+
+.table-responsive::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 2px;
+}
+
+
+/* ==================================
+   TABLE ACTIONS (row-level buttons)
+   ================================== */
+.table-actions {
+    display: flex;
+    gap: 4px;
+}
+
+.table-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: var(--text-sm);
+    transition: all var(--transition-fast);
+}
+
+.table-action-btn:hover {
+    border-color: var(--border-hover);
+    color: var(--text);
+    background: var(--bg-hover);
+}
+
+.table-action-btn.danger:hover {
+    border-color: var(--red);
+    color: var(--red);
+    background: var(--red-dim);
+}

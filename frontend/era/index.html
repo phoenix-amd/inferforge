@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>InferForge ERA -- Mission Control</title>
+
+<!-- Common CSS -->
+<link rel="stylesheet" href="/common/css/variables.css">
+<link rel="stylesheet" href="/common/css/base.css">
+<link rel="stylesheet" href="/common/css/components.css">
+<link rel="stylesheet" href="/common/css/chat.css">
+<link rel="stylesheet" href="/common/css/tables.css">
+
+<!-- Era Theme CSS -->
+<link rel="stylesheet" href="/era/css/era.css">
+
+<!-- CDN: markdown-it -->
+<script src="https://cdn.jsdelivr.net/npm/markdown-it@14/dist/markdown-it.min.js"></script>
+</head>
+<body>
+
+<div class="era-app" id="app">
+
+  <!-- ==============================
+       HEADER BAR
+       ============================== -->
+  <header class="era-header">
+    <div class="era-header-left">
+      <span class="era-logo-mark"></span>
+      <span class="era-logo-text">INFERFORGE</span>
+      <span class="era-logo-sub">ERA</span>
+      <span class="era-version">v1.0</span>
+    </div>
+    <div class="era-header-center">
+      <div class="era-session-indicator" id="era-session-indicator">
+        <span class="era-session-dot"></span>
+        <span class="era-session-label" id="era-session-label">NO ACTIVE SESSION</span>
+      </div>
+    </div>
+    <div class="era-header-right">
+      <div class="era-header-stat">
+        <span class="era-header-stat-label">UPTIME</span>
+        <span class="era-header-stat-value" id="era-uptime">00:00:00</span>
+      </div>
+      <div class="era-header-stat">
+        <span class="era-header-stat-label">NODES</span>
+        <span class="era-header-stat-value" id="era-node-count">--</span>
+      </div>
+      <div class="era-header-stat">
+        <span class="era-header-stat-label">GPUs</span>
+        <span class="era-header-stat-value" id="era-gpu-count">--</span>
+      </div>
+      <div class="era-header-divider"></div>
+      <div class="era-clock" id="era-clock">--:--:--</div>
+      <div class="era-status-beacon" id="era-status-beacon" title="API Status"></div>
+      <div class="ui-switcher">
+        <a href="/" class="ui-switcher-btn">Classic</a>
+        <a href="/nova" class="ui-switcher-btn">Nova</a>
+        <a href="/era" class="ui-switcher-btn active">Era</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- ==============================
+       MAIN GRID: 2x2 + CHAT SIDEBAR
+       ============================== -->
+  <div class="era-grid">
+
+    <!-- ========================
+         TOP-LEFT: GPU TELEMETRY
+         ======================== -->
+    <section class="era-panel" id="panel-telemetry">
+      <div class="era-panel-header">
+        <div class="era-panel-title-group">
+          <span class="era-panel-marker marker-cyan"></span>
+          <h2 class="era-panel-title">GPU TELEMETRY</h2>
+        </div>
+        <div class="era-panel-controls">
+          <span class="era-panel-badge badge-cyan" id="telemetry-status">STANDBY</span>
+          <button class="era-panel-btn" onclick="Era.refreshTelemetry()" title="Refresh">R</button>
+        </div>
+      </div>
+      <div class="era-panel-body era-telemetry-body" id="telemetry-body">
+        <div class="era-telemetry-grid" id="telemetry-grid">
+          <!-- Node cards rendered by JS -->
+          <div class="era-empty-panel">
+            <div class="era-empty-label">AWAITING NODE DATA</div>
+            <div class="era-empty-hint">Configure cluster and run GPU detection</div>
+          </div>
+        </div>
+        <div class="era-telemetry-chart-wrap" id="telem-chart-wrap" onclick="Era.toggleTelemExpand()">
+          <canvas id="canvas-telemetry" title="Click to expand"></canvas>
+        </div>
+        <div class="era-telem-legend" id="telem-legend"></div>
+      </div>
+    </section>
+
+    <!-- ========================
+         TOP-RIGHT: OPTIMIZATION TIMELINE
+         ======================== -->
+    <section class="era-panel" id="panel-timeline">
+      <div class="era-panel-header">
+        <div class="era-panel-title-group">
+          <span class="era-panel-marker marker-amber"></span>
+          <h2 class="era-panel-title">OPTIMIZATION TIMELINE</h2>
+        </div>
+        <div class="era-panel-controls">
+          <span class="era-panel-badge badge-amber" id="timeline-phase">--</span>
+          <select class="era-panel-select" id="timeline-session-select" onchange="Era.loadTimeline()">
+            <option value="">Select Session</option>
+          </select>
+        </div>
+      </div>
+      <div class="era-panel-body" id="timeline-body">
+        <canvas id="canvas-gantt"></canvas>
+        <div class="era-phase-legend" id="phase-legend">
+          <span class="era-legend-item"><span class="era-legend-swatch" style="background:#4488ff"></span>PRELUDE</span>
+          <span class="era-legend-item"><span class="era-legend-swatch" style="background:#ffaa00"></span>ENABLEMENT</span>
+          <span class="era-legend-item"><span class="era-legend-swatch" style="background:#00c896"></span>FRAMEWORK</span>
+          <span class="era-legend-item"><span class="era-legend-swatch" style="background:#8866ff"></span>KERNEL</span>
+          <span class="era-legend-item"><span class="era-legend-swatch" style="background:#00d4ff"></span>SWEEP</span>
+          <span class="era-legend-item"><span class="era-legend-swatch" style="background:#666680"></span>CLOSE</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================
+         BOTTOM-LEFT: BENCHMARK RESULTS
+         ======================== -->
+    <section class="era-panel" id="panel-benchmarks">
+      <div class="era-panel-header">
+        <div class="era-panel-title-group">
+          <span class="era-panel-marker marker-green"></span>
+          <h2 class="era-panel-title">BENCHMARK RESULTS</h2>
+        </div>
+        <div class="era-panel-controls">
+          <span class="era-panel-badge badge-green" id="benchmark-count">0 RUNS</span>
+          <button class="era-panel-btn" onclick="Era._showEmptyBenchmarks()" title="Clear charts">C</button>
+          <button class="era-panel-btn" onclick="Era.loadBenchmarkHistory()" title="Load past benchmark runs">H</button>
+          <button class="era-panel-btn" onclick="Era.refreshBenchmarks()" title="Refresh">R</button>
+        </div>
+      </div>
+      <div class="era-panel-body era-panel-body-split" id="benchmark-body">
+        <div class="era-bench-chart-area">
+          <div class="era-bench-chart-label">THROUGHPUT (tok/s)</div>
+          <canvas id="canvas-throughput"></canvas>
+        </div>
+        <div class="era-bench-chart-area">
+          <div class="era-bench-chart-label">TTFT DISTRIBUTION (ms)</div>
+          <canvas id="canvas-ttft"></canvas>
+        </div>
+        <div class="era-bench-metrics" id="bench-metrics">
+          <div class="era-metric-card">
+            <div class="era-metric-label">PEAK THROUGHPUT</div>
+            <div class="era-metric-value" id="metric-throughput">--</div>
+            <div class="era-metric-unit">tok/s</div>
+          </div>
+          <div class="era-metric-card">
+            <div class="era-metric-label">MEDIAN TTFT</div>
+            <div class="era-metric-value" id="metric-ttft">--</div>
+            <div class="era-metric-unit">ms</div>
+          </div>
+          <div class="era-metric-card">
+            <div class="era-metric-label">P99 ITL</div>
+            <div class="era-metric-value" id="metric-itl">--</div>
+            <div class="era-metric-unit">ms</div>
+          </div>
+          <div class="era-metric-card">
+            <div class="era-metric-label">BEST TP</div>
+            <div class="era-metric-value" id="metric-tp">--</div>
+            <div class="era-metric-unit">config</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================
+         BOTTOM-RIGHT: DEPLOYMENT PIPELINE
+         ======================== -->
+    <section class="era-panel" id="panel-deployments">
+      <div class="era-panel-header">
+        <div class="era-panel-title-group">
+          <span class="era-panel-marker marker-purple"></span>
+          <h2 class="era-panel-title">DEPLOYMENT PIPELINE</h2>
+        </div>
+        <div class="era-panel-controls">
+          <span class="era-panel-badge badge-purple" id="deploy-status">IDLE</span>
+        </div>
+      </div>
+      <div class="era-panel-body" id="deployment-body">
+        <div class="era-pipeline" id="deployment-pipeline">
+          <!-- Pipeline stages -->
+          <div class="era-pipeline-stage" data-stage="pending" id="stage-pending">
+            <div class="era-stage-node">
+              <div class="era-stage-circle"></div>
+              <div class="era-stage-label">PENDING</div>
+            </div>
+            <div class="era-stage-connector"></div>
+          </div>
+          <div class="era-pipeline-stage" data-stage="building" id="stage-building">
+            <div class="era-stage-node">
+              <div class="era-stage-circle"></div>
+              <div class="era-stage-label">BUILDING</div>
+            </div>
+            <div class="era-stage-connector"></div>
+          </div>
+          <div class="era-pipeline-stage" data-stage="deploying" id="stage-deploying">
+            <div class="era-stage-node">
+              <div class="era-stage-circle"></div>
+              <div class="era-stage-label">DEPLOYING</div>
+            </div>
+            <div class="era-stage-connector"></div>
+          </div>
+          <div class="era-pipeline-stage" data-stage="canary" id="stage-canary">
+            <div class="era-stage-node">
+              <div class="era-stage-circle"></div>
+              <div class="era-stage-label">CANARY</div>
+            </div>
+            <div class="era-stage-connector"></div>
+          </div>
+          <div class="era-pipeline-stage" data-stage="promoted" id="stage-promoted">
+            <div class="era-stage-node">
+              <div class="era-stage-circle"></div>
+              <div class="era-stage-label">PROMOTED</div>
+            </div>
+          </div>
+        </div>
+        <div class="era-deploy-details" id="deploy-details">
+          <div class="era-deploy-row">
+            <span class="era-deploy-key">Model</span>
+            <span class="era-deploy-val" id="deploy-model">--</span>
+          </div>
+          <div class="era-deploy-row">
+            <span class="era-deploy-key">Framework</span>
+            <span class="era-deploy-val" id="deploy-framework">--</span>
+          </div>
+          <div class="era-deploy-row">
+            <span class="era-deploy-key">TP Config</span>
+            <span class="era-deploy-val" id="deploy-tp">--</span>
+          </div>
+          <div class="era-deploy-row">
+            <span class="era-deploy-key">Target Nodes</span>
+            <span class="era-deploy-val" id="deploy-nodes">--</span>
+          </div>
+          <div class="era-deploy-row">
+            <span class="era-deploy-key">Started</span>
+            <span class="era-deploy-val" id="deploy-started">--</span>
+          </div>
+        </div>
+        <div class="era-deploy-actions">
+          <button class="era-deploy-btn era-deploy-btn-primary" onclick="Era.deployBest()">DEPLOY BEST</button>
+          <button class="era-deploy-btn era-deploy-btn-danger" onclick="Era.rollbackDeploy()">ROLLBACK</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================
+         RIGHT SIDEBAR: CHAT
+         ======================== -->
+    <aside class="era-chat-sidebar" id="era-chat-sidebar">
+      <div class="era-chat-header">
+        <div class="era-chat-title-group">
+          <span class="era-panel-marker marker-red"></span>
+          <h2 class="era-chat-title">COMMAND</h2>
+        </div>
+        <div class="era-chat-controls">
+          <button class="era-panel-btn" onclick="Era.toggleConfig()" title="Configure cluster &amp; model" id="btn-config">⚙</button>
+          <button class="era-panel-btn" onclick="Era.loadHistory()" title="Load chat history">↺</button>
+          <button class="era-panel-btn" onclick="Era.newChat()" title="New Chat">+</button>
+        </div>
+      </div>
+
+      <!-- ── CONFIG DRAWER ── -->
+      <div class="era-config-drawer" id="era-config-drawer">
+        <div class="era-config-section">
+          <div class="era-config-section-label">CLUSTER</div>
+          <div class="era-config-row">
+            <label class="era-config-label">HEAD NODE IP</label>
+            <input id="cfg-head" class="era-config-input" placeholder="10.0.0.1" type="text">
+          </div>
+          <div class="era-config-row">
+            <label class="era-config-label">WORKER NODES</label>
+            <input id="cfg-workers" class="era-config-input" placeholder="10.0.0.2, 10.0.0.3 (optional)" type="text">
+          </div>
+          <div class="era-config-row">
+            <label class="era-config-label">SSH USER</label>
+            <input id="cfg-user" class="era-config-input" placeholder="root" type="text" value="rghaffar">
+          </div>
+          <div class="era-config-row">
+            <label class="era-config-label">SSH KEY</label>
+            <input id="cfg-key" class="era-config-input" placeholder="~/.ssh/id_ed25519" type="text" value="~/.ssh/id_ed25519">
+          </div>
+        </div>
+
+        <div class="era-config-section">
+          <div class="era-config-section-label">MODEL</div>
+          <div class="era-config-row">
+            <label class="era-config-label">MODEL</label>
+            <select id="cfg-model" class="era-config-select">
+              <option value="meta-llama/Llama-3.1-8B-Instruct">Llama 3.1 8B Instruct</option>
+              <option value="meta-llama/Llama-3.1-70B-Instruct">Llama 3.1 70B Instruct</option>
+              <option value="meta-llama/Llama-3.1-405B-Instruct">Llama 3.1 405B Instruct</option>
+              <option value="meta-llama/Llama-3.2-3B-Instruct">Llama 3.2 3B Instruct</option>
+              <option value="mistralai/Mixtral-8x7B-Instruct-v0.1">Mixtral 8x7B MoE</option>
+              <option value="mistralai/Mistral-7B-Instruct-v0.3">Mistral 7B Instruct</option>
+              <option value="Qwen/Qwen2.5-72B-Instruct">Qwen 2.5 72B Instruct</option>
+              <option value="google/gemma-2-27b-it">Gemma 2 27B IT</option>
+              <option value="custom">Custom (enter below)...</option>
+            </select>
+          </div>
+          <div class="era-config-row" id="cfg-custom-model-row" style="display:none">
+            <label class="era-config-label">CUSTOM ID</label>
+            <input id="cfg-model-custom" class="era-config-input" placeholder="org/model-name" type="text">
+          </div>
+          <div class="era-config-row">
+            <label class="era-config-label">MODEL PATH</label>
+            <input id="cfg-model-path" class="era-config-input" placeholder="/models/llama-70b (real run only)" type="text">
+          </div>
+        </div>
+
+        <div class="era-config-section">
+          <div class="era-config-section-label">FRAMEWORK &amp; DTYPE</div>
+          <div class="era-config-row">
+            <label class="era-config-label">FRAMEWORK</label>
+            <div class="era-framework-btns" id="era-framework-btns">
+              <button class="era-fw-btn active" data-fw="vllm" onclick="Era.selectFramework('vllm')">vLLM</button>
+              <button class="era-fw-btn" data-fw="sglang" onclick="Era.selectFramework('sglang')">SGLang</button>
+              <button class="era-fw-btn" data-fw="tgi" onclick="Era.selectFramework('tgi')">TGI</button>
+            </div>
+          </div>
+          <div class="era-config-row">
+            <label class="era-config-label">WEIGHT DTYPE</label>
+            <select id="cfg-weight-dtype" class="era-config-select">
+              <option value="bfloat16">BFloat16 (recommended)</option>
+              <option value="float16">Float16</option>
+              <option value="float8">Float8 (FP8)</option>
+              <option value="int8">Int8 (W8A8)</option>
+              <option value="int4">Int4 (AWQ)</option>
+            </select>
+          </div>
+          <div class="era-config-row">
+            <label class="era-config-label">KV DTYPE</label>
+            <select id="cfg-kv-dtype" class="era-config-select">
+              <option value="same">Same as weight</option>
+              <option value="float16">Float16</option>
+              <option value="float8">Float8</option>
+              <option value="int8">Int8</option>
+            </select>
+          </div>
+          <div class="era-config-row">
+            <label class="era-config-label">SEQ LENGTH</label>
+            <select id="cfg-seq-len" class="era-config-select">
+              <option value="2048">2048</option>
+              <option value="4096" selected>4096</option>
+              <option value="8192">8192</option>
+              <option value="16384">16384</option>
+              <option value="32768">32768</option>
+              <option value="65536">65536</option>
+              <option value="131072">131072</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="era-config-section">
+          <div class="era-config-section-label">SLA TARGETS <span class="era-config-hint">(blank = skip)</span></div>
+          <div class="era-config-row">
+            <label class="era-config-label">MAX TTFT (ms)</label>
+            <input id="cfg-ttft" class="era-config-input era-config-input-short" placeholder="500" type="number" min="0">
+          </div>
+          <div class="era-config-row">
+            <label class="era-config-label">MAX TPOT (ms)</label>
+            <input id="cfg-tpot" class="era-config-input era-config-input-short" placeholder="50" type="number" min="0">
+          </div>
+          <div class="era-config-row">
+            <label class="era-config-label">MIN THROUGHPUT</label>
+            <input id="cfg-throughput" class="era-config-input era-config-input-short" placeholder="1000 tok/s" type="number" min="0">
+          </div>
+          <div class="era-config-row">
+            <label class="era-config-label">MAX E2E (ms)</label>
+            <input id="cfg-e2e" class="era-config-input era-config-input-short" placeholder="10000" type="number" min="0">
+          </div>
+        </div>
+
+        <div class="era-config-actions">
+          <button class="era-config-save-btn" onclick="Era.saveConfig()">SAVE &amp; APPLY</button>
+          <button class="era-config-cancel-btn" onclick="Era.toggleConfig()">CLOSE</button>
+        </div>
+      </div>
+      <!-- ── /CONFIG DRAWER ── -->
+
+      <div class="era-chat-messages" id="chat-messages">
+        <!-- Messages rendered by Chat module -->
+        <div class="era-chat-welcome">
+          <div class="era-welcome-mark"></div>
+          <div class="era-welcome-text">InferForge ERA</div>
+          <div class="era-welcome-sub">Mission Control ready. Click a quick-command button below, or type a command and press Enter.</div>
+        </div>
+      </div>
+
+      <!-- QUICK COMMAND BUTTONS -->
+      <div class="era-quick-cmds">
+        <button class="era-qcmd" onclick="Era.quickCommand('Detect GPUs on ALL cluster nodes (head + workers) via SSH, register each node in the fleet API using POST /api/fleet/nodes/upsert with ip_address, gpu_platform, gpu_count, hbm_per_gpu_gb, status=online')">🔍 Detect GPUs</button>
+        <button class="era-qcmd" onclick="Era.quickCommand('Run memory calculator SIMULATION mode. Skip SSH — use GPU info from cluster config. Run: cd /home/rghaffari/inferforge && python3 inferforge/calculator/engine.py --model &lt;model_key&gt; --gpu &lt;gpu&gt; --gpu-count &lt;count&gt; --dtype bfloat16 --seq-len 4096 --json. Then present the FULL report with all sections from report_format.md — show every formula step by step.')">🧮 Memory Calc</button>
+        <button class="era-qcmd" onclick="Era.quickCommand('Run inference benchmark and report throughput and latency')">⚡ Benchmark</button>
+        <button class="era-qcmd" onclick="Era.quickCommand('Deploy the best configuration found so far')">🚀 Deploy Best</button>
+        <button class="era-qcmd" onclick="Era.quickCommand('Show current GPU utilization and memory usage')">📊 GPU Status</button>
+        <button class="era-qcmd" onclick="Era.quickCommand('Optimize configuration for maximum throughput within SLA targets')">🎯 Auto-Optimize</button>
+        <button class="era-qcmd" onclick="Era.stopJob()">🛑 Stop All</button>
+        <button class="era-qcmd era-qcmd-reset" onclick="Era.resetDashboard()" title="Reset all panels to clean state">🔄 Reset</button>
+      </div>
+
+      <div class="era-chat-input-area">
+        <div class="era-chat-selectors">
+          <select id="sel-skill" class="era-chat-select" title="Skill">
+            <option value="">Auto</option>
+            <option value="inference-optimize" selected>inference-optimize</option>
+            <option value="model-profiler">model-profiler</option>
+            <option value="benchmark-runner">benchmark-runner</option>
+          </select>
+          <select id="sel-mode" class="era-chat-select" title="Mode">
+            <option value="interactive">Interactive</option>
+            <option value="autonomous" selected>Autonomous</option>
+            <option value="batch">Batch</option>
+          </select>
+          <select id="sel-runtype" class="era-chat-select" title="Run Type">
+            <option value="simulation" selected>Simulation</option>
+            <option value="real">Real Run</option>
+          </select>
+        </div>
+        <div class="era-chat-input-row">
+          <textarea id="chat-input" class="era-chat-input" placeholder="Enter command..." rows="1"
+            onkeydown="Era.handleKey(event)" oninput="Era.autoResize(this)"></textarea>
+          <button id="btn-send" class="era-send-btn" onclick="Era.sendMessage()">SEND</button>
+          <button id="btn-stop" class="era-stop-btn" onclick="Era.stopJob()" title="Abort">STOP</button>
+        </div>
+      </div>
+    </aside>
+
+  </div><!-- /era-grid -->
+
+</div><!-- /app -->
+
+<!-- Chart Expand Modal -->
+<div id="chart-modal" class="era-chart-modal" onclick="Era.closeChartModal(event)">
+  <div class="era-chart-modal-content" onclick="event.stopPropagation()">
+    <div class="era-chart-modal-header">
+      <span id="chart-modal-title" class="era-chart-modal-title"></span>
+      <button class="era-chart-modal-close" onclick="Era.closeChartModal()">&times;</button>
+    </div>
+    <canvas id="canvas-modal-chart"></canvas>
+  </div>
+</div>
+
+<!-- Common JS -->
+<script src="/common/js/api.js"></script>
+<script src="/common/js/state.js"></script>
+<script src="/common/js/markdown.js"></script>
+<script src="/common/js/chat.js"></script>
+<script src="/common/js/charts.js"></script>
+
+<!-- Era Theme JS -->
+<script src="/era/js/era.js"></script>
+
+</body>
+</html>

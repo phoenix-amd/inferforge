@@ -1,0 +1,90 @@
+/* InferForge -- Design Tokens & CSS Custom Properties
+   AMD-branded dark theme
+   ===================================================== */
+
+:root {
+    /* ---- Backgrounds ---- */
+    --bg:              #0a0a14;
+    --bg-secondary:    #111122;
+    --bg-tertiary:     #1a1a2e;
+    --bg-card:         #16162a;
+    --bg-input:        #0e0e1e;
+    --bg-hover:        #1e1e3a;
+    --bg-overlay:      rgba(0, 0, 0, 0.55);
+
+    /* ---- Borders ---- */
+    --border:          #2a2a44;
+    --border-hover:    #3a3a55;
+    --border-input:    #333350;
+    --border-focus:    #4488ff;
+
+    /* ---- Text ---- */
+    --text:            #e0e0f0;
+    --text-secondary:  #bbbbd0;
+    --text-muted:      #8888aa;
+    --text-dim:        #555577;
+
+    /* ---- Brand Colors ---- */
+    --accent:          #ed1c24;       /* AMD Red */
+    --accent-hover:    #ff2d35;
+    --accent-dim:      rgba(237, 28, 36, 0.15);
+
+    /* ---- Semantic Colors ---- */
+    --green:           #00c896;
+    --green-dim:       rgba(0, 200, 150, 0.12);
+    --blue:            #4488ff;
+    --blue-dim:        rgba(68, 136, 255, 0.12);
+    --cyan:            #00d4ff;
+    --cyan-dim:        rgba(0, 212, 255, 0.12);
+    --amber:           #ffaa00;
+    --amber-dim:       rgba(255, 170, 0, 0.12);
+    --purple:          #8866ff;
+    --purple-dim:      rgba(136, 102, 255, 0.12);
+    --red:             #ff4466;
+    --red-dim:         rgba(255, 68, 102, 0.12);
+    --orange:          #ff8c00;
+    --orange-dim:      rgba(255, 140, 0, 0.12);
+
+    /* ---- Typography ---- */
+    --font:            'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --mono:            'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+
+    --text-xs:         11px;
+    --text-sm:         12px;
+    --text-base:       14px;
+    --text-lg:         16px;
+    --text-xl:         20px;
+    --text-2xl:        24px;
+
+    /* ---- Spacing (4px base) ---- */
+    --space-1:         4px;
+    --space-2:         8px;
+    --space-3:         12px;
+    --space-4:         16px;
+    --space-5:         20px;
+    --space-6:         24px;
+    --space-8:         32px;
+
+    /* ---- Shape ---- */
+    --radius:          8px;
+    --radius-sm:       4px;
+    --radius-lg:       12px;
+    --radius-xl:       16px;
+    --radius-full:     9999px;
+
+    /* ---- Elevation ---- */
+    --shadow-sm:       0 1px 4px rgba(0, 0, 0, 0.3);
+    --shadow:          0 4px 24px rgba(0, 0, 0, 0.4);
+    --shadow-lg:       0 8px 40px rgba(0, 0, 0, 0.5);
+
+    /* ---- Motion ---- */
+    --transition:      0.2s ease;
+    --transition-fast: 0.12s ease;
+    --transition-slow: 0.35s ease;
+
+    /* ---- Layout ---- */
+    --sidebar-width:   260px;
+    --topbar-height:   48px;
+    --input-height:    44px;
+    --right-panel-width: 320px;
+}

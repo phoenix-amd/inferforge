@@ -1,0 +1,1656 @@
+/* InferForge ERA -- Mission Control Theme
+   =========================================
+   NASA-style dense, data-rich, multi-panel layout
+   with glowing accent borders and monospace metrics.
+   ================================================= */
+
+/* ---- Era-specific tokens ---- */
+:root {
+    --era-bg-deep:       #050510;
+    --era-bg-panel:      #0a0a1a;
+    --era-bg-header:     #08081a;
+    --era-bg-input:      #0c0c20;
+    --era-border:        #1a1a35;
+    --era-border-active: #2a2a50;
+    --era-glow-cyan:     rgba(0, 212, 255, 0.25);
+    --era-glow-amber:    rgba(255, 170, 0, 0.2);
+    --era-glow-green:    rgba(0, 200, 150, 0.2);
+    --era-glow-purple:   rgba(136, 102, 255, 0.2);
+    --era-glow-red:      rgba(237, 28, 36, 0.25);
+    --era-header-h:      48px;
+    --era-chat-w:        300px;
+    --era-grid-gap:      2px;
+}
+
+
+/* ==================================
+   APP SHELL
+   ================================== */
+.era-app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+    background: var(--era-bg-deep);
+}
+
+
+/* ==================================
+   HEADER BAR
+   ================================== */
+.era-header {
+    height: var(--era-header-h);
+    background: var(--era-bg-header);
+    border-bottom: 1px solid var(--era-border);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    flex-shrink: 0;
+    z-index: 100;
+    box-shadow: 0 1px 12px rgba(0, 0, 0, 0.5), inset 0 -1px 0 rgba(0, 212, 255, 0.08);
+}
+
+.era-header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.era-logo-mark {
+    width: 10px;
+    height: 10px;
+    background: var(--accent);
+    border-radius: 2px;
+    transform: rotate(45deg);
+    box-shadow: 0 0 8px var(--accent);
+}
+
+.era-logo-text {
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--text);
+    letter-spacing: 0.12em;
+    font-family: var(--mono);
+}
+
+.era-logo-sub {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--cyan);
+    letter-spacing: 0.2em;
+    padding: 1px 6px;
+    border: 1px solid rgba(0, 212, 255, 0.3);
+    border-radius: 2px;
+    background: rgba(0, 212, 255, 0.06);
+}
+
+.era-version {
+    font-size: 9px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+}
+
+.era-header-center {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+}
+
+.era-session-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 12px;
+    border: 1px solid var(--era-border);
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.3);
+}
+
+.era-session-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    flex-shrink: 0;
+}
+
+.era-session-indicator.active .era-session-dot {
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+    animation: pulse 1.5s infinite;
+}
+
+.era-session-label {
+    font-size: 10px;
+    font-family: var(--mono);
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.era-header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-shrink: 0;
+}
+
+.era-header-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+}
+
+.era-header-stat-label {
+    font-size: 8px;
+    color: var(--text-dim);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-family: var(--mono);
+}
+
+.era-header-stat-value {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    font-family: var(--mono);
+}
+
+.era-header-divider {
+    width: 1px;
+    height: 24px;
+    background: var(--era-border);
+}
+
+.era-clock {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--cyan);
+    font-family: var(--mono);
+    letter-spacing: 0.05em;
+    text-shadow: 0 0 8px rgba(0, 212, 255, 0.3);
+    min-width: 70px;
+    text-align: center;
+}
+
+.era-status-beacon {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    flex-shrink: 0;
+    transition: all 0.3s;
+}
+
+.era-status-beacon.online {
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green), 0 0 16px rgba(0, 200, 150, 0.2);
+}
+
+.era-status-beacon.error {
+    background: var(--red);
+    box-shadow: 0 0 8px var(--red);
+}
+
+.era-status-beacon.busy {
+    background: var(--amber);
+    box-shadow: 0 0 8px var(--amber);
+    animation: pulse 1s infinite;
+}
+
+
+/* ==================================
+   MAIN GRID
+   ================================== */
+.era-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr var(--era-chat-w);
+    grid-template-rows: 1fr 1fr;
+    gap: var(--era-grid-gap);
+    overflow: hidden;
+    background: var(--era-bg-deep);
+}
+
+
+/* ==================================
+   PANELS (generic)
+   ================================== */
+.era-panel {
+    background: var(--era-bg-panel);
+    border: 1px solid var(--era-border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+    transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.era-panel:hover {
+    border-color: var(--era-border-active);
+}
+
+.era-panel.focused {
+    z-index: 10;
+}
+
+/* Panel header bar */
+.era-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    background: rgba(0, 0, 0, 0.3);
+    border-bottom: 1px solid var(--era-border);
+    flex-shrink: 0;
+    min-height: 32px;
+}
+
+.era-panel-title-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.era-panel-marker {
+    width: 4px;
+    height: 14px;
+    border-radius: 1px;
+    flex-shrink: 0;
+}
+
+.marker-cyan   { background: var(--cyan);   box-shadow: 0 0 6px var(--era-glow-cyan); }
+.marker-amber  { background: var(--amber);  box-shadow: 0 0 6px var(--era-glow-amber); }
+.marker-green  { background: var(--green);  box-shadow: 0 0 6px var(--era-glow-green); }
+.marker-purple { background: var(--purple); box-shadow: 0 0 6px var(--era-glow-purple); }
+.marker-red    { background: var(--accent); box-shadow: 0 0 6px var(--era-glow-red); }
+
+.era-panel-title {
+    font-size: 11px;
+    font-weight: 800;
+    color: #c0d8e8;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-family: var(--mono);
+}
+
+.era-panel-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.era-panel-badge {
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 2px;
+    letter-spacing: 0.06em;
+    font-family: var(--mono);
+}
+
+.badge-cyan   { background: rgba(0, 212, 255, 0.12); color: var(--cyan); }
+.badge-amber  { background: rgba(255, 170, 0, 0.12); color: var(--amber); }
+.badge-green  { background: rgba(0, 200, 150, 0.12); color: var(--green); }
+.badge-purple { background: rgba(136, 102, 255, 0.12); color: var(--purple); }
+
+.era-panel-btn {
+    width: 24px;
+    height: 24px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--era-border);
+    border-radius: 2px;
+    color: var(--text-dim);
+    font-size: 10px;
+    font-weight: 700;
+    font-family: var(--mono);
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.era-panel-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text);
+    border-color: var(--era-border-active);
+}
+
+.era-panel-select {
+    font-size: 9px;
+    padding: 2px 6px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--era-border);
+    border-radius: 2px;
+    color: var(--text-muted);
+    font-family: var(--mono);
+    cursor: pointer;
+    outline: none;
+    appearance: none;
+    max-width: 140px;
+}
+
+.era-panel-select:focus {
+    border-color: var(--cyan);
+}
+
+/* Panel body */
+.era-panel-body {
+    flex: 1;
+    overflow: hidden;
+    padding: 8px;
+    position: relative;
+}
+
+.era-panel-body-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr auto;
+    gap: 6px;
+}
+
+/* Empty panel state */
+.era-empty-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    gap: 6px;
+}
+
+.era-empty-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-dim);
+    letter-spacing: 0.1em;
+    font-family: var(--mono);
+}
+
+.era-empty-hint {
+    font-size: 10px;
+    color: rgba(85, 85, 119, 0.6);
+    font-family: var(--font);
+}
+
+/* Focus glow per panel */
+#panel-telemetry.focused  { border-color: rgba(0, 212, 255, 0.4); box-shadow: inset 0 0 20px var(--era-glow-cyan), 0 0 12px var(--era-glow-cyan); }
+#panel-timeline.focused   { border-color: rgba(255, 170, 0, 0.4); box-shadow: inset 0 0 20px var(--era-glow-amber), 0 0 12px var(--era-glow-amber); }
+#panel-benchmarks.focused { border-color: rgba(0, 200, 150, 0.4); box-shadow: inset 0 0 20px var(--era-glow-green), 0 0 12px var(--era-glow-green); }
+#panel-deployments.focused { border-color: rgba(136, 102, 255, 0.4); box-shadow: inset 0 0 20px var(--era-glow-purple), 0 0 12px var(--era-glow-purple); }
+
+
+/* ==================================
+   GPU TELEMETRY
+   ================================== */
+.era-telemetry-body {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.era-telemetry-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 6px;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: none;
+}
+
+.era-telemetry-chart-wrap {
+    flex-shrink: 0;
+    height: 130px;
+    border-top: 1px solid var(--era-border);
+    padding: 4px 0 0;
+}
+
+.era-telemetry-chart-wrap canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.era-telemetry-grid::-webkit-scrollbar { display: none; }
+
+.era-node-card {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--era-border);
+    border-radius: 3px;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.era-node-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.era-node-name {
+    font-size: 13px;
+    font-weight: 800;
+    color: #ffffff;
+    font-family: var(--mono);
+}
+
+.era-node-status {
+    font-size: 10px;
+    font-weight: 800;
+    padding: 2px 8px;
+    border-radius: 2px;
+    letter-spacing: 0.08em;
+    font-family: var(--mono);
+}
+
+.era-node-status.online  { background: rgba(0, 200, 150, 0.15); color: var(--green); }
+.era-node-status.offline { background: rgba(85, 85, 119, 0.15); color: #888; }
+.era-node-status.unknown { background: rgba(255, 170, 0, 0.12); color: var(--amber); }
+.era-node-status.busy    { background: rgba(255, 170, 0, 0.15); color: var(--amber); }
+
+/* -- Node spec line (MI300X · 8 GPUs · 192 GB) -- */
+.era-node-spec {
+    font-size: 12px;
+    font-family: var(--mono);
+    color: #a0c8e0;
+    padding: 2px 0;
+    letter-spacing: 0.02em;
+}
+.era-node-spec strong {
+    color: #00d4ff;
+    font-weight: 800;
+}
+.era-node-spec.dim {
+    color: #556;
+    font-style: italic;
+}
+
+/* -- GPU checkmark chips (compact, no live data) -- */
+.era-gpu-chips {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 0;
+    flex-wrap: wrap;
+}
+.era-gpu-chip {
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: 800;
+    font-family: var(--mono);
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.03);
+    color: #556;
+}
+.era-gpu-chip.online {
+    background: rgba(0, 200, 150, 0.12);
+    border-color: rgba(0, 200, 150, 0.35);
+    color: var(--green);
+}
+.era-gpu-chip.idle {
+    background: rgba(255,255,255,0.03);
+    border-color: rgba(255,255,255,0.08);
+    color: #445;
+}
+.era-gpu-chip-label {
+    font-size: 10px;
+    font-family: var(--mono);
+    color: #78a0b8;
+    font-weight: 600;
+    margin-left: 4px;
+}
+
+/* -- Mini vertical bars (live utilization) -- */
+.era-gpu-mini-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 32px;
+    padding: 3px 0;
+}
+.era-gpu-mini {
+    flex: 1;
+    height: 100%;
+    background: rgba(255,255,255,0.04);
+    border-radius: 2px;
+    position: relative;
+    overflow: hidden;
+    cursor: help;
+}
+.era-mini-fill {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    min-height: 5px;   /* always visible even at 0% util */
+    border-radius: 2px 2px 0 0;
+    transition: height 0.5s ease;
+}
+.era-mini-ok   { background: var(--green); }
+.era-mini-warn { background: var(--amber); }
+.era-mini-crit { background: var(--red); }
+
+/* Telemetry chart legend (HTML, wrappable) */
+.era-telem-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    padding: 4px 6px 2px;
+    flex-shrink: 0;
+    border-top: 1px solid var(--era-border);
+}
+.era-telem-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 9px;
+    font-family: var(--mono);
+    color: var(--text-dim);
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+}
+.era-telem-legend-swatch {
+    width: 16px;
+    height: 3px;
+    border-radius: 1px;
+    flex-shrink: 0;
+}
+.era-telem-legend-val {
+    color: var(--text-bright);
+    font-weight: 600;
+}
+
+/* Expandable telemetry chart */
+.era-telemetry-chart-wrap.expanded {
+    height: 220px;
+}
+.era-telemetry-chart-wrap canvas {
+    cursor: pointer;
+}
+
+/* -- Node stats row (UTIL, TEMP, PWR) -- */
+.era-node-stats {
+    display: flex;
+    gap: 12px;
+    padding: 4px 0 0;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    margin-top: 3px;
+}
+.era-stat {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--mono);
+}
+.era-stat-k {
+    font-size: 9px;
+    font-weight: 700;
+    color: rgba(0, 212, 255, 0.55);
+    letter-spacing: 0.06em;
+}
+.era-stat-v {
+    font-size: 12px;
+    font-weight: 700;
+    color: #c8e0f0;
+}
+.era-stat-v.dim {
+    color: #445;
+}
+
+/* ---- Chart Expand Modal ---- */
+.era-chart-modal {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+}
+.era-chart-modal.open {
+    display: flex;
+}
+.era-chart-modal-content {
+    background: #0a0e18;
+    border: 1px solid rgba(0, 212, 255, 0.25);
+    border-radius: 8px;
+    padding: 16px;
+    width: 85vw;
+    max-width: 1000px;
+    box-shadow: 0 0 40px rgba(0, 212, 255, 0.1);
+}
+.era-chart-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+.era-chart-modal-title {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 800;
+    color: #00d4ff;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.era-chart-modal-close {
+    background: none;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 4px;
+    color: #888;
+    font-size: 20px;
+    width: 32px;
+    height: 32px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.era-chart-modal-close:hover {
+    color: #fff;
+    border-color: rgba(255,255,255,0.3);
+}
+#canvas-modal-chart {
+    width: 100%;
+}
+
+/* Make chart canvases clickable */
+#canvas-throughput, #canvas-ttft {
+    cursor: pointer;
+}
+
+
+/* ==================================
+   GANTT / OPTIMIZATION TIMELINE
+   ================================== */
+#panel-timeline .era-panel-body {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+#canvas-gantt {
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+    display: block;
+}
+
+.era-phase-legend {
+    display: flex;
+    gap: 12px;
+    padding: 6px 4px 4px;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+}
+
+.era-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 9px;
+    font-family: var(--mono);
+    color: var(--text-dim);
+    letter-spacing: 0.05em;
+}
+
+.era-legend-swatch {
+    width: 8px;
+    height: 4px;
+    border-radius: 1px;
+    display: inline-block;
+}
+
+
+/* ==================================
+   BENCHMARK RESULTS
+   ================================== */
+.era-bench-chart-area {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.era-bench-chart-label {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    font-family: var(--mono);
+    margin-bottom: 4px;
+    padding-left: 2px;
+}
+
+.era-bench-chart-area canvas {
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+}
+
+.era-bench-metrics {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+}
+
+.era-metric-card {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--era-border);
+    border-radius: 2px;
+    padding: 6px 8px;
+    text-align: center;
+}
+
+.era-metric-label {
+    font-size: 10px;
+    font-weight: 800;
+    color: rgba(0, 212, 255, 0.7);
+    letter-spacing: 0.08em;
+    font-family: var(--mono);
+    margin-bottom: 3px;
+}
+
+.era-metric-value {
+    font-size: 20px;
+    font-weight: 800;
+    color: #ffffff;
+    font-family: var(--mono);
+    line-height: 1.1;
+}
+
+.era-metric-unit {
+    font-size: 9px;
+    color: #88a8c0;
+    font-family: var(--mono);
+    letter-spacing: 0.05em;
+}
+
+
+/* ==================================
+   DEPLOYMENT PIPELINE
+   ================================== */
+.era-pipeline {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px 12px 12px;
+    gap: 0;
+}
+
+.era-pipeline-stage {
+    display: flex;
+    align-items: center;
+}
+
+.era-stage-node {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+}
+
+.era-stage-circle {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid var(--era-border);
+    background: rgba(0, 0, 0, 0.4);
+    transition: all 0.4s;
+    position: relative;
+}
+
+.era-stage-label {
+    font-size: 10px;
+    font-weight: 800;
+    color: #90b0c8;
+    letter-spacing: 0.1em;
+    font-family: var(--mono);
+    text-align: center;
+    min-width: 60px;
+}
+
+.era-stage-connector {
+    width: 28px;
+    height: 2px;
+    background: var(--era-border);
+    margin: 0 2px;
+    margin-bottom: 20px;
+    transition: background 0.4s;
+}
+
+/* Pipeline active states */
+.era-pipeline-stage.completed .era-stage-circle {
+    border-color: var(--green);
+    background: rgba(0, 200, 150, 0.15);
+    box-shadow: 0 0 8px var(--era-glow-green);
+}
+
+.era-pipeline-stage.completed .era-stage-circle::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--green);
+}
+
+.era-pipeline-stage.completed .era-stage-connector {
+    background: var(--green);
+    box-shadow: 0 0 4px var(--era-glow-green);
+}
+
+.era-pipeline-stage.completed .era-stage-label {
+    color: var(--green);
+}
+
+.era-pipeline-stage.active .era-stage-circle {
+    border-color: var(--amber);
+    background: rgba(255, 170, 0, 0.15);
+    box-shadow: 0 0 10px var(--era-glow-amber);
+    animation: pulse 1.5s infinite;
+}
+
+.era-pipeline-stage.active .era-stage-circle::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--amber);
+}
+
+.era-pipeline-stage.active .era-stage-label {
+    color: var(--amber);
+}
+
+.era-pipeline-stage.error .era-stage-circle {
+    border-color: var(--red);
+    background: rgba(255, 68, 102, 0.15);
+    box-shadow: 0 0 8px rgba(255, 68, 102, 0.3);
+}
+
+.era-pipeline-stage.error .era-stage-label {
+    color: var(--red);
+}
+
+/* Deploy details */
+.era-deploy-details {
+    padding: 0 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.era-deploy-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    font-family: var(--mono);
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.era-deploy-key {
+    color: rgba(0, 212, 255, 0.7);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+}
+
+.era-deploy-val {
+    color: #c8e8ff;
+    font-weight: 700;
+}
+
+.era-deploy-actions {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px 4px;
+}
+
+.era-deploy-btn {
+    flex: 1;
+    padding: 5px 10px;
+    border: 1px solid var(--era-border);
+    border-radius: 2px;
+    font-size: 9px;
+    font-weight: 800;
+    font-family: var(--mono);
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-transform: uppercase;
+}
+
+.era-deploy-btn-primary {
+    background: rgba(0, 200, 150, 0.1);
+    color: var(--green);
+    border-color: rgba(0, 200, 150, 0.3);
+}
+
+.era-deploy-btn-primary:hover {
+    background: rgba(0, 200, 150, 0.2);
+    border-color: var(--green);
+    box-shadow: 0 0 8px var(--era-glow-green);
+}
+
+.era-deploy-btn-danger {
+    background: rgba(255, 68, 102, 0.08);
+    color: var(--red);
+    border-color: rgba(255, 68, 102, 0.25);
+}
+
+.era-deploy-btn-danger:hover {
+    background: rgba(255, 68, 102, 0.15);
+    border-color: var(--red);
+    box-shadow: 0 0 8px rgba(255, 68, 102, 0.3);
+}
+
+
+/* ==================================
+   CHAT SIDEBAR
+   ================================== */
+.era-chat-sidebar {
+    grid-row: 1 / -1;
+    background: var(--era-bg-panel);
+    border-left: 1px solid var(--era-border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.era-chat-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    background: rgba(0, 0, 0, 0.3);
+    border-bottom: 1px solid var(--era-border);
+    flex-shrink: 0;
+    min-height: 32px;
+}
+
+.era-chat-title-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.era-chat-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-muted);
+    letter-spacing: 0.12em;
+    font-family: var(--mono);
+}
+
+.era-chat-controls {
+    display: flex;
+    gap: 4px;
+}
+
+/* Chat messages area */
+.era-chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--era-border) transparent;
+}
+
+.era-chat-messages::-webkit-scrollbar { width: 4px; }
+.era-chat-messages::-webkit-scrollbar-thumb { background: var(--era-border); border-radius: 2px; }
+
+/* Override common chat styles for Era -- prioritize READABILITY */
+.era-chat-messages .msg {
+    max-width: 100%;
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+    line-height: 1.65;
+    color: #d8e8f8;
+}
+
+.era-chat-messages .msg.user {
+    background: rgba(68, 136, 255, 0.12);
+    border: 1px solid rgba(68, 136, 255, 0.3);
+    border-radius: 6px;
+    font-size: 14px;
+    color: #e0eeff;
+    font-weight: 500;
+    align-self: stretch;
+}
+
+.era-chat-messages .msg.assistant {
+    background: rgba(8, 18, 35, 0.7);
+    border: 1px solid rgba(0, 212, 255, 0.15);
+    border-radius: 6px;
+    font-size: 14px;
+    color: #d0e4f4;
+    align-self: stretch;
+}
+
+.era-chat-messages .msg-header {
+    margin-bottom: 6px;
+}
+
+.era-chat-messages .msg-avatar {
+    width: 20px;
+    height: 20px;
+    font-size: 10px;
+}
+
+.era-chat-messages .msg-name {
+    font-size: 11px;
+    font-weight: 700;
+    color: rgba(0, 212, 255, 0.8);
+}
+
+.era-chat-messages .msg h1 { font-size: 18px; color: #fff; font-weight: 700; }
+.era-chat-messages .msg h2 { font-size: 16px; color: #e8f4ff; font-weight: 700; }
+.era-chat-messages .msg h3 { font-size: 14px; color: #c8e0f0; font-weight: 700; }
+
+.era-chat-messages .msg strong {
+    color: #ffffff;
+    font-weight: 700;
+}
+
+.era-chat-messages .msg code {
+    font-size: 12px;
+    padding: 1px 5px;
+    background: rgba(0, 212, 255, 0.1);
+    color: #7ddfff;
+    border-radius: 3px;
+}
+
+.era-chat-messages .msg pre {
+    font-size: 12px;
+    padding: 8px 10px;
+    margin: 6px 0;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(0, 212, 255, 0.12);
+    border-radius: 4px;
+    color: #b8d8e8;
+}
+
+.era-chat-messages .msg table {
+    font-size: 12px;
+}
+
+.era-chat-messages .msg th {
+    padding: 4px 8px;
+    color: rgba(0, 212, 255, 0.85);
+    font-weight: 700;
+}
+
+.era-chat-messages .msg td {
+    padding: 4px 8px;
+    color: #c8dce8;
+}
+
+.era-chat-messages .tool-block {
+    margin: 6px 0;
+    border-radius: 4px;
+}
+
+.era-chat-messages .tool-header {
+    padding: 5px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #90d0e8;
+    background: rgba(0, 30, 60, 0.6);
+}
+
+.era-chat-messages .tool-body {
+    font-size: 12px;
+    padding: 6px 10px;
+    max-height: 200px;
+    color: #a8c8d8;
+    background: rgba(0, 0, 0, 0.3);
+}
+
+.era-chat-messages .thinking {
+    font-size: 12px;
+    padding: 6px 10px;
+    color: #88a8b8;
+}
+
+/* Welcome screen */
+.era-chat-welcome {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    gap: 8px;
+    opacity: 0.4;
+}
+
+.era-welcome-mark {
+    width: 16px;
+    height: 16px;
+    background: var(--accent);
+    border-radius: 3px;
+    transform: rotate(45deg);
+}
+
+.era-welcome-text {
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--text);
+    letter-spacing: 0.1em;
+    font-family: var(--mono);
+}
+
+.era-welcome-sub {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-align: center;
+    line-height: 1.5;
+    max-width: 220px;
+}
+
+/* Chat input */
+.era-chat-input-area {
+    border-top: 2px solid rgba(0, 212, 255, 0.35);
+    background: rgba(0, 8, 20, 0.92);
+    flex-shrink: 0;
+    padding: 8px 10px;
+}
+
+.era-chat-selectors {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+.era-chat-select {
+    flex: 1;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 4px 8px;
+    background: rgba(0, 212, 255, 0.07);
+    border: 1px solid rgba(0, 212, 255, 0.25);
+    border-radius: 3px;
+    color: rgba(0, 212, 255, 0.9);
+    font-family: var(--mono);
+    cursor: pointer;
+    outline: none;
+    appearance: none;
+    min-width: 0;
+    letter-spacing: 0.04em;
+}
+
+.era-chat-select:focus {
+    border-color: var(--cyan);
+    background: rgba(0, 212, 255, 0.12);
+}
+
+.era-chat-input-row {
+    display: flex;
+    gap: 6px;
+    align-items: flex-end;
+}
+
+.era-chat-input {
+    flex: 1;
+    min-height: 32px;
+    max-height: 80px;
+    padding: 6px 10px;
+    background: rgba(0, 212, 255, 0.05);
+    border: 1px solid rgba(0, 212, 255, 0.25);
+    border-radius: 3px;
+    color: #e0f4ff;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    resize: none;
+    outline: none;
+    transition: border-color 0.2s;
+    line-height: 1.4;
+}
+
+.era-chat-input:focus {
+    border-color: var(--cyan);
+    background: rgba(0, 212, 255, 0.08);
+    box-shadow: 0 0 8px var(--era-glow-cyan);
+}
+
+.era-chat-input::placeholder {
+    color: rgba(0, 212, 255, 0.4);
+    font-weight: 400;
+}
+
+.era-send-btn {
+    padding: 6px 14px;
+    background: rgba(0, 212, 255, 0.15);
+    border: 1px solid rgba(0, 212, 255, 0.45);
+    border-radius: 3px;
+    color: var(--cyan);
+    font-size: 11px;
+    font-weight: 800;
+    font-family: var(--mono);
+    letter-spacing: 0.10em;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+    height: 32px;
+}
+
+.era-send-btn:hover {
+    background: rgba(0, 212, 255, 0.2);
+    border-color: var(--cyan);
+    box-shadow: 0 0 8px var(--era-glow-cyan);
+}
+
+.era-send-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.era-stop-btn {
+    display: none;
+    padding: 5px 8px;
+    background: rgba(255, 68, 102, 0.12);
+    border: 1px solid rgba(255, 68, 102, 0.3);
+    border-radius: 2px;
+    color: var(--red);
+    font-size: 9px;
+    font-weight: 800;
+    font-family: var(--mono);
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+    height: 30px;
+}
+
+.era-stop-btn.visible {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.era-stop-btn:hover {
+    background: rgba(255, 68, 102, 0.25);
+    border-color: var(--red);
+}
+
+
+/* ==================================
+   GRID LINES (subtle overlay)
+   ================================== */
+.era-panel::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+        repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 39px,
+            rgba(255, 255, 255, 0.015) 39px,
+            rgba(255, 255, 255, 0.015) 40px
+        ),
+        repeating-linear-gradient(
+            90deg,
+            transparent,
+            transparent 39px,
+            rgba(255, 255, 255, 0.015) 39px,
+            rgba(255, 255, 255, 0.015) 40px
+        );
+    z-index: 0;
+}
+
+.era-panel > * {
+    position: relative;
+    z-index: 1;
+}
+
+
+/* ==================================
+   SCANLINE EFFECT (subtle)
+   ================================== */
+.era-app::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0, 0, 0, 0.03) 2px,
+        rgba(0, 0, 0, 0.03) 4px
+    );
+    z-index: 9999;
+}
+
+
+/* ==================================
+   ANIMATIONS
+   ================================== */
+@keyframes era-glow-pulse {
+    0%, 100% { opacity: 0.6; }
+    50%      { opacity: 1; }
+}
+
+@keyframes era-data-stream {
+    0%   { opacity: 0.3; transform: translateX(-4px); }
+    50%  { opacity: 1; }
+    100% { opacity: 0.3; transform: translateX(4px); }
+}
+
+
+/* ==================================
+   RESPONSIVE
+   ================================== */
+@media (max-width: 1200px) {
+    :root {
+        --era-chat-w: 260px;
+    }
+    .era-bench-metrics {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 900px) {
+    .era-grid {
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: 1fr 1fr auto;
+    }
+    .era-chat-sidebar {
+        grid-column: 1 / -1;
+        grid-row: 3;
+        max-height: 200px;
+    }
+    .era-header-stat,
+    .era-header-divider {
+        display: none;
+    }
+}
+
+/* ==================================
+   CONFIG DRAWER
+   ================================== */
+.era-config-drawer {
+    display: none;
+    flex-direction: column;
+    gap: 0;
+    overflow-y: auto;
+    flex-shrink: 0;
+    max-height: 60vh;
+    background: rgba(0, 4, 14, 0.97);
+    border-bottom: 1px solid rgba(0, 212, 255, 0.2);
+    animation: drawerSlideIn 0.18s ease;
+}
+
+.era-config-drawer.open {
+    display: flex;
+}
+
+@keyframes drawerSlideIn {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.era-config-section {
+    padding: 8px 10px 6px;
+    border-bottom: 1px solid rgba(0, 212, 255, 0.08);
+}
+
+.era-config-section:last-of-type {
+    border-bottom: none;
+}
+
+.era-config-section-label {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    color: rgba(0, 212, 255, 0.5);
+    margin-bottom: 6px;
+    font-family: var(--mono);
+}
+
+.era-config-hint {
+    font-size: 8px;
+    font-weight: 400;
+    opacity: 0.6;
+    letter-spacing: 0;
+}
+
+.era-config-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 5px;
+}
+
+.era-config-label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: rgba(0, 212, 255, 0.7);
+    font-family: var(--mono);
+    white-space: nowrap;
+    width: 110px;
+    flex-shrink: 0;
+}
+
+.era-config-input {
+    flex: 1;
+    background: rgba(0, 212, 255, 0.05);
+    border: 1px solid rgba(0, 212, 255, 0.2);
+    border-radius: 3px;
+    color: #d0eeff;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 4px 8px;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.era-config-input:focus {
+    border-color: var(--cyan);
+    background: rgba(0, 212, 255, 0.08);
+}
+
+.era-config-input::placeholder {
+    color: rgba(0, 212, 255, 0.25);
+    font-weight: 400;
+}
+
+.era-config-input-short {
+    max-width: 100px;
+    flex: 0 0 100px;
+}
+
+.era-config-select {
+    flex: 1;
+    background: rgba(0, 212, 255, 0.05);
+    border: 1px solid rgba(0, 212, 255, 0.2);
+    border-radius: 3px;
+    color: #d0eeff;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 4px 6px;
+    outline: none;
+    cursor: pointer;
+    appearance: none;
+    transition: border-color 0.15s;
+}
+
+.era-config-select:focus {
+    border-color: var(--cyan);
+}
+
+/* Framework toggle buttons */
+.era-framework-btns {
+    display: flex;
+    gap: 4px;
+    flex: 1;
+}
+
+.era-fw-btn {
+    flex: 1;
+    padding: 4px 6px;
+    background: rgba(0, 212, 255, 0.04);
+    border: 1px solid rgba(0, 212, 255, 0.15);
+    border-radius: 3px;
+    color: rgba(0, 212, 255, 0.5);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.era-fw-btn:hover {
+    border-color: rgba(0, 212, 255, 0.4);
+    color: rgba(0, 212, 255, 0.85);
+}
+
+.era-fw-btn.active {
+    background: rgba(0, 212, 255, 0.15);
+    border-color: var(--cyan);
+    color: var(--cyan);
+}
+
+/* Config action buttons */
+.era-config-actions {
+    display: flex;
+    gap: 6px;
+    padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.3);
+}
+
+.era-config-save-btn {
+    flex: 1;
+    padding: 6px 0;
+    background: rgba(0, 212, 255, 0.15);
+    border: 1px solid rgba(0, 212, 255, 0.5);
+    border-radius: 3px;
+    color: var(--cyan);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.era-config-save-btn:hover {
+    background: rgba(0, 212, 255, 0.25);
+}
+
+.era-config-cancel-btn {
+    padding: 6px 14px;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    color: rgba(255, 255, 255, 0.4);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.era-config-cancel-btn:hover {
+    border-color: rgba(255, 255, 255, 0.25);
+    color: rgba(255, 255, 255, 0.7);
+}
+
+/* Saved toast */
+.era-config-toast {
+    position: fixed;
+    bottom: 90px;
+    right: 20px;
+    background: rgba(0, 212, 255, 0.15);
+    border: 1px solid rgba(0, 212, 255, 0.5);
+    border-radius: 4px;
+    color: var(--cyan);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    padding: 7px 14px;
+    letter-spacing: 0.06em;
+    animation: toastIn 0.2s ease, toastOut 0.3s ease 1.7s forwards;
+    pointer-events: none;
+    z-index: 999;
+}
+
+@keyframes toastIn  { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+@keyframes toastOut { from { opacity:1; } to { opacity:0; } }
+
+/* ---- Quick Command Buttons ---- */
+.era-quick-cmds {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    padding: 6px 10px 4px;
+    border-top: 1px solid rgba(0, 212, 255, 0.12);
+    background: rgba(0, 5, 15, 0.85);
+}
+
+.era-qcmd {
+    background: rgba(0, 212, 255, 0.06);
+    border: 1px solid rgba(0, 212, 255, 0.22);
+    border-radius: 4px;
+    color: rgba(0, 212, 255, 0.8);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 4px 9px;
+    cursor: pointer;
+    letter-spacing: 0.03em;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+    white-space: nowrap;
+}
+
+.era-qcmd:hover {
+    background: rgba(0, 212, 255, 0.14);
+    border-color: rgba(0, 212, 255, 0.55);
+    color: #00d4ff;
+}
+
+.era-qcmd:active {
+    background: rgba(0, 212, 255, 0.22);
+}
+
+.era-qcmd-reset {
+    border-color: rgba(255, 68, 102, 0.35);
+    background: rgba(255, 68, 102, 0.06);
+    color: #ff6680;
+}
+.era-qcmd-reset:hover {
+    border-color: rgba(255, 68, 102, 0.6);
+    background: rgba(255, 68, 102, 0.14);
+    color: #ff4466;
+}
