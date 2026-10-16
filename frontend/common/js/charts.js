@@ -19,6 +19,35 @@ const Charts = {
     },
 
     /**
+     * Attach scroll-to-zoom and double-click-to-reset to a canvas.
+     * Only attaches once per canvas (checks for data-zoom-attached).
+     */
+    _attachZoom(canvas) {
+        if (canvas.dataset.zoomAttached) return;
+        canvas.dataset.zoomAttached = '1';
+        canvas.dataset.zoomScale = '1';
+        canvas.style.cursor = 'zoom-in';
+        canvas.style.transformOrigin = 'top left';
+        canvas.style.transition = 'transform 0.15s ease';
+
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const delta = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+            let scale = parseFloat(canvas.dataset.zoomScale) * delta;
+            scale = Math.min(Math.max(scale, 0.5), 5);
+            canvas.dataset.zoomScale = scale;
+            canvas.style.transform = `scale(${scale})`;
+            canvas.style.cursor = scale > 1 ? 'zoom-out' : 'zoom-in';
+        }, { passive: false });
+
+        canvas.addEventListener('dblclick', () => {
+            canvas.dataset.zoomScale = '1';
+            canvas.style.transform = 'scale(1)';
+            canvas.style.cursor = 'zoom-in';
+        });
+    },
+
+    /**
      * Get canvas 2D context and set up for HiDPI.
      */
     _setup(canvas, width, height) {
@@ -113,11 +142,12 @@ const Charts = {
             ctx.translate(lx, ly);
             ctx.rotate(Math.PI / 4);
             ctx.fillStyle = C.muted;
-            ctx.font = '9px Inter, sans-serif';
+            ctx.font = '11px Inter, sans-serif';
             ctx.textAlign = 'left';
             ctx.fillText(d.label || '', 0, 0);
             ctx.restore();
         });
+        this._attachZoom(canvas);
     },
 
     /**
@@ -221,11 +251,12 @@ const Charts = {
             ctx.translate(lx, ly);
             ctx.rotate(Math.PI / 4);
             ctx.fillStyle = C.muted;
-            ctx.font = '9px Inter, sans-serif';
+            ctx.font = '11px Inter, sans-serif';
             ctx.textAlign = 'left';
             ctx.fillText(d.label || '', 0, 0);
             ctx.restore();
         });
+        this._attachZoom(canvas);
     },
 
     /**
@@ -494,6 +525,7 @@ const Charts = {
             const x = pad.left + (plotW / (labels.length - 1)) * i;
             ctx.fillText(lbl, x, h - 6);
         });
+        this._attachZoom(canvas);
     },
 };
 
