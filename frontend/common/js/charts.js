@@ -44,7 +44,7 @@ const Charts = {
         const { ctx } = this._setup(canvas, w, h);
         const C = this._colors;
 
-        const pad = { top: 30, right: 20, bottom: 40, left: 50 };
+        const pad = { top: 30, right: 20, bottom: 70, left: 50 };
         const plotW = w - pad.left - pad.right;
         const plotH = h - pad.top - pad.bottom;
         const maxVal = opts.maxValue || Math.max(...data.map(d => d.value), 1);
@@ -106,11 +106,17 @@ const Charts = {
                 ctx.fillText(d.value.toFixed(0), x + barW / 2, y - 6);
             }
 
-            // X-axis label
+            // X-axis label — rotated 45°
+            const lx = x + barW / 2;
+            const ly = pad.top + plotH + 8;
+            ctx.save();
+            ctx.translate(lx, ly);
+            ctx.rotate(Math.PI / 4);
             ctx.fillStyle = C.muted;
-            ctx.font = '10px Inter, sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText(d.label || '', x + barW / 2, h - pad.bottom + 16);
+            ctx.font = '9px Inter, sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillText(d.label || '', 0, 0);
+            ctx.restore();
         });
     },
 
@@ -126,7 +132,7 @@ const Charts = {
         const { ctx } = this._setup(canvas, w, h);
         const C = this._colors;
 
-        const pad = { top: 30, right: 20, bottom: 40, left: 50 };
+        const pad = { top: 30, right: 20, bottom: 70, left: 50 };
         const plotW = w - pad.left - pad.right;
         const plotH = h - pad.top - pad.bottom;
         const maxVal = Math.max(...data.map(d => d.value), 1) * 1.1;
@@ -205,14 +211,20 @@ const Charts = {
             });
         }
 
-        // X labels
+        // X labels — rotated 45°
         const step = Math.max(1, Math.floor(data.length / 6));
         data.forEach((d, i) => {
             if (i % step !== 0 && i !== data.length - 1) return;
+            const lx = points[i].x;
+            const ly = pad.top + plotH + 8;
+            ctx.save();
+            ctx.translate(lx, ly);
+            ctx.rotate(Math.PI / 4);
             ctx.fillStyle = C.muted;
-            ctx.font = '10px Inter, sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText(d.label || '', points[i].x, h - pad.bottom + 16);
+            ctx.font = '9px Inter, sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillText(d.label || '', 0, 0);
+            ctx.restore();
         });
     },
 
