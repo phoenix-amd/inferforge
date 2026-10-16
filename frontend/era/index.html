@@ -411,7 +411,7 @@
       <!-- QUICK COMMAND BUTTONS -->
       <div class="era-quick-cmds">
         <button class="era-qcmd" onclick="Era.quickCommand('Detect GPUs on ALL cluster nodes (head + workers) via SSH, register each node in the fleet API using POST /api/fleet/nodes/upsert with ip_address, gpu_platform, gpu_count, hbm_per_gpu_gb, status=online')">🔍 Detect GPUs</button>
-        <button class="era-qcmd" onclick="Era.quickCommand('Run memory calculator SIMULATION mode. Skip SSH — use GPU info from cluster config. Run: cd /home/rghaffari/inferforge && python3 inferforge/calculator/engine.py --model &lt;model_key&gt; --gpu &lt;gpu&gt; --gpu-count &lt;count&gt; --dtype bfloat16 --seq-len 4096 --json. Then present the FULL report with all sections from report_format.md — show every formula step by step.')">🧮 Memory Calc</button>
+        <button class="era-qcmd" onclick="Era.memoryCalcCommand()">🧮 Memory Calc</button>
         <button class="era-qcmd" onclick="Era.quickCommand('Run inference benchmark and report throughput and latency')">⚡ Benchmark</button>
         <button class="era-qcmd" onclick="Era.quickCommand('Deploy the best configuration found so far')">🚀 Deploy Best</button>
         <button class="era-qcmd" onclick="Era.quickCommand('Show current GPU utilization and memory usage')">📊 GPU Status</button>

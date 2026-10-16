@@ -423,7 +423,23 @@ const Charts = {
         // Draw each series
         for (const s of series) {
             const data = s.data;
-            if (data.length < 2) continue;
+            if (!data.length) continue;
+
+            // Single point — draw a flat dashed line at that value
+            if (data.length === 1) {
+                const val = data[0] || 0;
+                const maxVal = Math.max(val * 1.1, 1);
+                const y = pad.top + plotH - (val / maxVal) * plotH;
+                ctx.setLineDash([4, 4]);
+                ctx.strokeStyle = s.color + '88';
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(pad.left, y);
+                ctx.lineTo(w - pad.right, y);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                continue;
+            }
 
             const maxVal = Math.max(...data, 1) * 1.1;
             const minVal = Math.min(...data, 0);

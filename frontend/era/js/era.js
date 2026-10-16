@@ -37,16 +37,18 @@ const Era = {
                 this.loadBenchmarks(),
                 this.loadDeployments(),
             ]);
-            // Start live telemetry polling
-            this._telemetryTimer = setInterval(() => this.refreshTelemetry(), 10000);
         } else {
-            // Fresh login — show completely clean dashboard
+            // Fresh login — show clean panels (no historical data)
             await this.loadStatus();
             this._showEmptyTelemetry();
             this._showEmptyBenchmarks();
             this._showEmptyDeployments();
-            // NO telemetry timer — starts only when session activates
         }
+
+        // Always start GPU telemetry polling — so heatmap history
+        // accumulates from program start, not just after first message
+        this._telemetryTimer = setInterval(() => this._pollTelemetry(), 10000);
+        this._pollTelemetry(); // immediate first poll
 
         this.initKeyboard();
         Chat.initScrollTracking();
@@ -143,8 +145,61 @@ const Era = {
     _telemSelectedGpu: null,       // { nodeKey, gpuId } for drill-down
     _telemView: 'heatmap',         // heatmap | timeline
 
+    /** Lightweight poll — always runs, collects GPU history even before session activates */
+    async _pollTelemetry() {
+        try {
+            const liveData = await API.get('/fleet/nodes/telemetry');
+            if (!liveData || !liveData.nodes) return;
+
+            const now = new Date();
+            const timeLabel = now.getHours().toString().padStart(2,'0') + ':' +
+                              now.getMinutes().toString().padStart(2,'0') + ':' +
+                              now.getSeconds().toString().padStart(2,'0');
+            const h = this._telemetryHistory;
+            h.labels.push(timeLabel);
+            if (h.labels.length > this._TELEM_MAX_POINTS) h.labels.shift();
+
+            for (const node of liveData.nodes) {
+                const gpus = node.gpus || [];
+                if (!gpus.length) continue;
+                const nodeKey = node.ip || node.hostname;
+                if (!h.nodes[nodeKey]) h.nodes[nodeKey] = { ip: nodeKey, util: [], temp: [], power: [] };
+                const nd = h.nodes[nodeKey];
+                nd.util.push(node.avg_util || 0);
+                nd.temp.push(node.avg_temp || 0);
+                nd.power.push(node.total_power || 0);
+                if (nd.util.length > this._TELEM_MAX_POINTS) { nd.util.shift(); nd.temp.shift(); nd.power.shift(); }
+
+                h.gpuSnapshot[nodeKey] = gpus;
+                for (const g of gpus) {
+                    const gKey = nodeKey + ':' + g.gpu_id;
+                    if (!h.gpuHistory[gKey]) h.gpuHistory[gKey] = { util: [], temp: [], power: [] };
+                    const gh = h.gpuHistory[gKey];
+                    gh.util.push(g.utilization || 0);
+                    gh.temp.push(g.temperature || 0);
+                    gh.power.push(g.power || 0);
+                    if (gh.util.length > this._TELEM_MAX_POINTS) { gh.util.shift(); gh.temp.shift(); gh.power.shift(); }
+                }
+            }
+
+            // If session active, update the full telemetry UI
+            if (this._sessionActive) {
+                await this.refreshTelemetry();
+            } else {
+                // Just refresh the inline heatmap and modal drill-down if open
+                this._renderInlineHeatmap();
+                const modal = document.getElementById('telem-modal');
+                if (modal && modal.classList.contains('open')) {
+                    // Only refresh the drill-down, not the whole heatmap (avoids flicker)
+                    if (this._telemSelectedGpu) {
+                        this._renderDrilldown(this._telemSelectedGpu.nodeKey, this._telemSelectedGpu.gpuId);
+                    }
+                }
+            }
+        } catch (_) {}
+    },
+
     async refreshTelemetry() {
-        if (!this._sessionActive) return;
         try {
             // Fetch fleet node info (for card rendering)
             const fleetData = await API.get('/fleet/nodes');
@@ -220,9 +275,18 @@ const Era = {
                 if (Object.keys(h.nodes).length > 0) {
                     this._renderTelemetryChart();
                     this._renderInlineHeatmap();
-                    // Refresh modal if open
+                    // Refresh modal if open — only redraw drill-down charts (no flicker)
                     const modal = document.getElementById('telem-modal');
-                    if (modal && modal.classList.contains('open')) this._renderTelemModal();
+                    if (modal && modal.classList.contains('open')) {
+                        if (this._telemSelectedGpu) {
+                            this._renderDrilldown(
+                                this._telemSelectedGpu.nodeKey,
+                                this._telemSelectedGpu.gpuId
+                            );
+                        } else {
+                            this._renderTelemModal();
+                        }
+                    }
                 }
             }
         } catch (_) {
@@ -235,7 +299,7 @@ const Era = {
         const canvas = document.getElementById('canvas-telemetry');
         if (!canvas) return;
         const h = this._telemetryHistory;
-        if (h.labels.length < 2) return;
+        if (!h.labels.length) return;
 
         const NODE_PALETTES = [
             { util: '#00d4ff', temp: '#ffaa00', power: '#00c896' },
@@ -1148,6 +1212,27 @@ const Era = {
         const input = document.getElementById('chat-input');
         if (input) input.value = text;
         this.sendMessage();
+    },
+
+    /**
+     * Memory Calc always runs as SIMULATION — overrides the run-type dropdown.
+     * Pure local math only: no SSH, no Docker, no GPU access needed.
+     */
+    memoryCalcCommand() {
+        const dropdown = document.getElementById('sel-runtype');
+        const prev = dropdown ? dropdown.value : 'simulation';
+        // Force simulation for memory calc regardless of current setting
+        if (dropdown) dropdown.value = 'simulation';
+        this.quickCommand(
+            '[RUN TYPE: SIMULATION — memory analysis only. Do NOT launch Docker or SSH for GPU detection. ' +
+            'Use GPU info already in the cluster config.] ' +
+            'Run the memory calculator and show the FULL report with all sections from report_format.md — ' +
+            'show every formula step by step including weight memory, KV cache per token, KV cache per request, ' +
+            'overhead, KV budget, max batch size, HBM visualization, parallelism table, batch sweep, ' +
+            'and recommended vLLM launch command.'
+        );
+        // Restore original run type after message is queued
+        setTimeout(() => { if (dropdown) dropdown.value = prev; }, 100);
     },
 
     quickCommand(text) {
