@@ -867,19 +867,42 @@ const Era = {
             canvas1.onclick = () => this.expandChart('throughput');
         }
 
-        const ttftData = runs.map((r, i) => ({
+        // Option B: filter out simulation/failed runs (TTFT = 0) — only real benchmarks
+        const allTtftData = runs.map((r, i) => ({
             label: this._getLabel(r, i),
             value: this._getTTFT(r),
         }));
+        const ttftData = allTtftData.filter(d => d.value > 0);
         this._chartData.ttft = ttftData;
 
         const canvas2 = document.getElementById('canvas-ttft');
         if (canvas2) {
-            Charts.drawBarChart(canvas2, ttftData, {
-                title: 'TTFT Distribution',
-                height: canvas2.parentElement?.clientHeight || 120,
-            });
-            canvas2.onclick = () => this.expandChart('ttft');
+            const countBadge = document.getElementById('benchmark-count');
+            if (ttftData.length < allTtftData.length && countBadge) {
+                countBadge.title = allTtftData.length + ' total runs, ' +
+                    (allTtftData.length - ttftData.length) + ' simulation/zero-TTFT runs hidden';
+            }
+            if (ttftData.length === 0) {
+                // All runs are simulations — show placeholder
+                const ctx = canvas2.getContext('2d');
+                const w = canvas2.parentElement?.clientWidth || 400;
+                const h = canvas2.parentElement?.clientHeight || 120;
+                canvas2.width = w; canvas2.height = h;
+                ctx.fillStyle = '#0a0a14';
+                ctx.fillRect(0, 0, w, h);
+                ctx.fillStyle = '#555577';
+                ctx.font = '11px Inter, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('No real benchmark runs yet (all TTFT = 0)', w / 2, h / 2);
+                ctx.font = '9px Inter, sans-serif';
+                ctx.fillText('Run a Real Run benchmark to see TTFT distribution', w / 2, h / 2 + 18);
+            } else {
+                Charts.drawBarChart(canvas2, ttftData, {
+                    title: 'TTFT Distribution (ms) — ' + ttftData.length + ' real runs',
+                    height: canvas2.parentElement?.clientHeight || 120,
+                });
+                canvas2.onclick = () => this.expandChart('ttft');
+            }
         }
     },
 
