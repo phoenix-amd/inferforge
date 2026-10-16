@@ -1838,8 +1838,8 @@
     border-radius: 3px;
     color: var(--text-dim);
     font-family: var(--mono);
-    font-size: 10px;
-    padding: 3px 10px;
+    font-size: 12px;
+    padding: 5px 14px;
     cursor: pointer;
     letter-spacing: 0.05em;
     transition: all 0.15s;
@@ -1859,8 +1859,8 @@
     border-radius: 3px;
     color: var(--text-dim);
     font-family: var(--mono);
-    font-size: 9px;
-    padding: 3px 8px;
+    font-size: 11px;
+    padding: 4px 12px;
     cursor: pointer;
     letter-spacing: 0.04em;
     transition: all 0.15s;
@@ -1900,39 +1900,41 @@
     width: 100%;
     border-collapse: collapse;
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: 14px;
 }
 .era-hm-table th {
     color: var(--text-dim);
-    font-size: 9px;
+    font-size: 12px;
     letter-spacing: 0.06em;
-    padding: 4px 6px;
+    padding: 8px 10px;
     text-align: center;
     background: rgba(0,0,0,0.3);
     border: 1px solid rgba(255,255,255,0.06);
+    font-weight: 600;
 }
-.era-hm-table th:first-child { text-align: left; min-width: 80px; }
+.era-hm-table th:first-child { text-align: left; min-width: 110px; }
 .era-hm-node {
-    color: #8899aa;
-    font-size: 10px;
-    padding: 5px 8px;
+    color: #aabbcc;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 12px;
     border: 1px solid rgba(255,255,255,0.05);
     white-space: nowrap;
 }
 .era-hm-cell {
     text-align: center;
-    padding: 6px 4px;
-    font-size: 11px;
+    padding: 10px 6px;
+    font-size: 14px;
     font-weight: 700;
     border: 1px solid transparent;
     cursor: pointer;
-    border-radius: 2px;
+    border-radius: 3px;
     transition: transform 0.1s, box-shadow 0.1s;
-    min-width: 44px;
+    min-width: 60px;
 }
 .era-hm-cell:hover {
-    transform: scale(1.08);
-    box-shadow: 0 0 8px currentColor;
+    transform: scale(1.1);
+    box-shadow: 0 0 10px currentColor;
     z-index: 1;
     position: relative;
 }
@@ -1942,40 +1944,41 @@
 }
 .era-hm-nodata {
     color: rgba(255,255,255,0.15);
-    font-size: 10px;
+    font-size: 13px;
     border: 1px solid rgba(255,255,255,0.04);
     cursor: default;
 }
 .era-hm-summary {
-    padding: 5px 8px;
-    font-size: 9px;
+    padding: 8px 12px;
+    font-size: 12px;
     white-space: nowrap;
     border: 1px solid rgba(255,255,255,0.05);
+    letter-spacing: 0.02em;
 }
 .era-hm-legend-bar {
     display: flex;
     flex-direction: column;
-    gap: 3px;
-    padding: 4px 2px;
+    gap: 5px;
+    padding: 8px 4px;
 }
 .era-hm-gradient {
-    height: 6px;
-    border-radius: 3px;
+    height: 10px;
+    border-radius: 4px;
 }
 .era-hm-legend-labels {
     display: flex;
     justify-content: space-between;
-    font-size: 8px;
+    font-size: 11px;
     font-family: var(--mono);
     color: var(--text-dim);
 }
 .era-hm-hint {
     color: var(--text-dim);
     font-family: var(--mono);
-    font-size: 10px;
+    font-size: 13px;
     text-align: center;
-    padding: 40px 12px;
-    line-height: 1.8;
+    padding: 60px 20px;
+    line-height: 2;
 }
 
 /* ==============================
@@ -1984,16 +1987,16 @@
 .era-dd-header { margin-bottom: 12px; border-bottom: 1px solid var(--era-border); padding-bottom: 10px; }
 .era-dd-title {
     font-family: var(--mono);
-    font-size: 13px;
+    font-size: 15px;
     font-weight: 700;
     color: var(--cyan);
     letter-spacing: 0.06em;
 }
 .era-dd-sub {
     font-family: var(--mono);
-    font-size: 10px;
+    font-size: 12px;
     color: var(--text-dim);
-    margin-top: 3px;
+    margin-top: 4px;
 }
 
 /* Each metric section: label + current value + chart */
@@ -2008,7 +2011,7 @@
 }
 .era-dd-section-label {
     font-family: var(--mono);
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 600;
     color: var(--text-dim);
     letter-spacing: 0.06em;
@@ -2016,7 +2019,7 @@
 }
 .era-dd-section-val {
     font-family: var(--mono);
-    font-size: 16px;
+    font-size: 22px;
     font-weight: 700;
 }
 .era-dd-canvas {
