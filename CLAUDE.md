@@ -302,7 +302,7 @@ docker run --rm -d \
   -v ~/.cache/huggingface:/root/.cache/huggingface \
   -e VLLM_USE_V1=0 \
   -e HIPBLASLT_WORKSPACE_SIZE=131072 \
-  -e HF_HUB_OFFLINE=1 \
+  -v ~/.cache/huggingface:/root/.cache/huggingface \
   <image> \
   <command>
 ```
@@ -349,7 +349,7 @@ python3 /app/vllm/benchmarks/benchmark_serving.py \
 |----------|-------|---------|
 | `VLLM_USE_V1=0` | `0` | Use v0 engine (stable on ROCm) |
 | `HIPBLASLT_WORKSPACE_SIZE` | `131072` | Prevent hipBLASLt OOM on large models |
-| `HF_HUB_OFFLINE` | `1` | Prevent accidental downloads during benchmark |
+| `HF_HUB_OFFLINE` | `0` | **Never set to 1** — breaks GSM8K accuracy eval, wastes ~55min in ENABLEMENT recovery |
 | `HIP_VISIBLE_DEVICES` | `0,1,2,3` | Select which AMD GPUs are visible (**not** CUDA_VISIBLE_DEVICES) |
 | `HYPERLOOM_KB_URL` | URL | Hyperloom Experience Knowledge Base endpoint |
 | `HYPERLOOM_KB_TOKEN` | token | Auth token for Hyperloom KB API |
@@ -825,6 +825,7 @@ docker rm -f hyperloom-optimize 2>/dev/null; docker run -d --name hyperloom-opti
   -v ~/hyperloom:/hyperloom \
   -v ~/hl-data:/hl-data \
   -v /mnt/GT_WEKA_NFS/new_gt/models:/mnt/GT_WEKA_NFS/new_gt/models \
+  -v ~/.cache/huggingface:/root/.cache/huggingface \
   -e ANTHROPIC_BASE_URL=https://llm-api.amd.com:18443/Anthropic \
   -e ANTHROPIC_API_KEY=57de3abaae7a4e5c981485742326d044 \
   -e ANTHROPIC_CUSTOM_HEADERS='Ocp-Apim-Subscription-Key: 57de3abaae7a4e5c981485742326d044' \

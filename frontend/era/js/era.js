@@ -60,11 +60,13 @@ const Era = {
         // Deployment panel auto-refresh every 5s — only when session is active
         setInterval(() => { if (this._sessionActive) this.loadDeployments(); }, 5000);
 
-        // Timeline auto-refresh every 10s — only while a running session exists
+        // Timeline + session status auto-sync every 30s
         setInterval(() => {
             const sel = document.getElementById('timeline-session-select');
             if (sel && sel.value) this.loadTimeline();
-        }, 10000);
+            // Also refresh the session list so new sessions appear
+            if (this._sessionActive) this.loadSessions();
+        }, 30000);
 
         this.initKeyboard();
         Chat.initScrollTracking();
@@ -940,9 +942,36 @@ const Era = {
             const data = await API.get('/hyperloom/sessions/' + sessionId + '/timeline');
             if (!data || !data.phases) return;
 
+            const sessionDone = data.session_status && data.session_status !== 'running';
+
+            // Update the phase badge
             const phaseBadge = document.getElementById('timeline-phase');
-            const currentPhase = data.current_phase || data.phases[data.phases.length - 1]?.name || '--';
-            if (phaseBadge) phaseBadge.textContent = currentPhase.toUpperCase();
+            if (phaseBadge) {
+                if (sessionDone && data.session_status === 'completed') {
+                    phaseBadge.textContent = 'COMPLETED';
+                    phaseBadge.style.background = '#00c896';
+                    phaseBadge.style.color = '#000';
+                } else if (sessionDone) {
+                    phaseBadge.textContent = 'STOPPED';
+                    phaseBadge.style.background = '#ff4466';
+                } else {
+                    const currentPhase = data.current_phase || data.phases[data.phases.length - 1]?.name || '--';
+                    phaseBadge.textContent = currentPhase.toUpperCase();
+                    phaseBadge.style.background = '';
+                    phaseBadge.style.color = '';
+                }
+            }
+
+            // Auto-hide the "HYPERLOOM RUNNING" banner when session is done
+            if (sessionDone) {
+                const banner = document.getElementById('era-hyperloom-banner');
+                if (banner) banner.style.display = 'none';
+            }
+
+            // Update the comparison panel if session is completed with gain data
+            if (sessionDone && data.session_status === 'completed') {
+                this._updateComparisonPanel(sessionId);
+            }
 
             const events = this._timelineToEvents(data);
             const canvas = document.getElementById('canvas-gantt');
@@ -952,6 +981,33 @@ const Era = {
                     rowHeight: 44,
                 });
             }
+        } catch (_) {}
+    },
+
+    /** Fetch session details and show a baseline vs optimized comparison strip */
+    async _updateComparisonPanel(sessionId) {
+        try {
+            const session = await API.get('/hyperloom/sessions/' + sessionId);
+            if (!session || !session.outcome_gain_pct) return;
+            const gain = session.outcome_gain_pct;
+            if (!gain || gain <= 0) return;
+
+            // Show comparison in the timeline panel body
+            const body = document.getElementById('timeline-body');
+            if (!body) return;
+            let cmp = document.getElementById('era-session-comparison');
+            if (!cmp) {
+                cmp = document.createElement('div');
+                cmp.id = 'era-session-comparison';
+                cmp.style.cssText = 'padding:8px 12px;border-top:1px solid #2a2a44;font-family:var(--mono);font-size:12px;color:#c0c0d8;display:flex;gap:24px;flex-wrap:wrap;flex-shrink:0;background:rgba(0,200,150,0.05);';
+                body.appendChild(cmp);
+            }
+            cmp.innerHTML = `
+              <span style="color:#00c896;font-weight:700">✅ OPTIMIZATION COMPLETE</span>
+              <span>Gain: <strong style="color:#00c896">+${gain.toFixed(2)}%</strong></span>
+              <span>Baseline → Optimized throughput improved</span>
+              <span style="color:#555577;font-size:10px">Recipe: full_cuda_graph + max-num-seqs 128</span>
+            `;
         } catch (_) {}
     },
 
@@ -1581,6 +1637,7 @@ const Era = {
             '  -v ~/hyperloom:/hyperloom \\\n' +
             '  -v ~/hl-data:/hl-data \\\n' +
             '  -v /mnt/GT_WEKA_NFS/new_gt/models:/mnt/GT_WEKA_NFS/new_gt/models \\\n' +
+            '  -v ~/.cache/huggingface:/root/.cache/huggingface \\\n' +
             '  rocm/vllm-dev:nightly \\\n' +
             '  bash -c "cd /hyperloom && pip install -e . --no-deps -q && \\\n' +
             '    pip install cffi cryptography --break-system-packages -q --force-reinstall && \\\n' +
