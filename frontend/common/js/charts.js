@@ -430,7 +430,7 @@ const Charts = {
             }
 
             // Duration text on bar
-            const dur = ev.end - ev.start;
+            const dur = Math.max(0, ev.end - ev.start);
             const durMin = (dur / 60).toFixed(1);
             const durStr = dur >= 60 ? durMin + 'm' : dur.toFixed(0) + 's';
             if (barW > 24) {

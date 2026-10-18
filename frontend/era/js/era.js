@@ -921,7 +921,8 @@ const Era = {
                 endTime = nowSec;  // still ticking
             } else {
                 // Session is done OR phase is not running — use latest known time
-                endTime = sessionDone ? (latestEnd || p.start_time + (p.duration || 60)) : p.start_time + (p.duration || 300);
+                const fallbackEnd = Math.max(latestEnd, p.start_time + (p.duration || 60));
+                endTime = sessionDone ? fallbackEnd : p.start_time + (p.duration || 300);
             }
             return {
                 label: name,
@@ -1583,7 +1584,7 @@ const Era = {
                 tp: 8,
                 status: 'running',
                 timeline_json: [
-                    { name: 'PRELUDE',         start_time: Math.floor(Date.now() / 1000), end_time: 0, duration: 0, status: 'running' },
+                    { name: 'PRELUDE',         start_time: 0, end_time: 0, duration: 0, status: 'running' },
                     { name: 'ENABLEMENT',      start_time: 0, end_time: 0, duration: 0, status: 'pending' },
                     { name: 'FRAMEWORK_AGENT', start_time: 0, end_time: 0, duration: 0, status: 'pending' },
                     { name: 'KERNEL_AGENT',    start_time: 0, end_time: 0, duration: 0, status: 'pending' },
