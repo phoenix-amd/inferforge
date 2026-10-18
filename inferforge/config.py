@@ -28,6 +28,23 @@ CLAUDE_SETTINGS_CANDIDATES = (
     (PROJECT_DIR / ".claude" / "settings.json", "project .claude/settings.json"),
 )
 
+# Load .env early so all downstream os.environ.get() calls see it
+def _load_env_file_early(path: Path) -> None:
+    if not path.exists():
+        return
+    with open(path, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+_load_env_file_early(PROJECT_DIR / ".env")
+
 # --- HyperLoom integration ---
 HYPERLOOM_KB_URL = os.environ.get("HYPERLOOM_KB_URL", "")
 HYPERLOOM_KB_TOKEN = os.environ.get("HYPERLOOM_KB_TOKEN", "")

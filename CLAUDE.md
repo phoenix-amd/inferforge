@@ -162,18 +162,50 @@ These rules are ABSOLUTE. Violating them causes the agent to loop infinitely:
 6. **NEVER emit the same progress text more than once.** If you catch yourself
    repeating, STOP and present the options box immediately.
 
-### Optimize workflow (Steps 1-8)
+### Optimize workflow (Steps 1-9)
 
 ```
-1. SSH -> GPU detection
-2. Resolve model -> verify weights exist on node
+1. SSH -> GPU detection (verify SSH key, test connectivity)
+2. Resolve model -> verify weights exist on node (3 targeted path checks ONLY)
 3. engine.py -> select valid TP/EP values
-4. POST /api/hyperloom/sessions/launch -> start optimization
-5. Monitor via /ws/hyperloom/{sid} -> live phase updates
-6. Parse Hyperloom breakdown -> import results
-7. Extract recipe -> store optimized config
-8. Present comparison table (baseline vs optimized)
+4. POST /api/hyperloom/sessions {model_name, framework_name, host, gpu_type, tp, status:"running"} -> save session ID
+5. PRE-FLIGHT CHECKS (must complete before Docker launch):
+   a. Verify SSH tunnel on port 18443 is active (curl -sk https://127.0.0.1:18443/)
+      If HTTP 000: start tunnel from LOCAL machine: ssh -R 18443:llm-api.amd.com:443 -N -f
+   b. Write kernel-agent.env.sh to ~/hl-data/runtime/ with correct LLM_BASE URLs
+   c. Verify ~/hyperloom/.env has correct ANTHROPIC_BASE_URL (may be root-owned, use kernel-agent.env.sh to override)
+6. Launch hyperloom optimize on cluster via Docker (rocm/vllm-dev:nightly) with --gpu-type mi300x (NOT --gpu)
+   USE THE COMPLETE DOCKER COMMAND FROM "Known Issues & Required Fixes" section.
+   CRITICAL CHECKLIST:
+   - Pin starlette<0.47.0 as FIRST pip install (Issue 1: prevents vLLM import crash)
+   - Set PIP_CONSTRAINT to prevent starlette re-upgrade during session
+   - Include --add-host llm-api.amd.com:127.0.0.1 (Issue 2: SSL cert validation)
+   - Include ANTHROPIC_CUSTOM_HEADERS env (Issue 3: AMD gateway auth)
+   - Include --critic-mock flag
+7. After each phase completes, PATCH /api/hyperloom/sessions/{sid} with updated timeline_json
+8. Parse Hyperloom breakdown -> POST /api/hyperloom/sessions/import or PATCH session
+9. Present comparison table (baseline vs optimized)
 ```
+
+### Timeline PATCH format (run after each phase completes)
+
+```json
+PATCH /api/hyperloom/sessions/{sid}
+{
+  "timeline_json": [
+    {"name": "PRELUDE",         "start_time": 1234567890, "end_time": 1234568490, "duration": 600,  "status": "complete"},
+    {"name": "ENABLEMENT",      "start_time": 1234568490, "end_time": 1234569390, "duration": 900,  "status": "complete"},
+    {"name": "FRAMEWORK_AGENT", "start_time": 1234569390, "end_time": 0,          "duration": 0,    "status": "running"},
+    {"name": "KERNEL_AGENT",    "start_time": 0,           "end_time": 0,          "duration": 0,    "status": "pending"},
+    {"name": "SWEEP",           "start_time": 0,           "end_time": 0,          "duration": 0,    "status": "pending"},
+    {"name": "CLOSE",           "start_time": 0,           "end_time": 0,          "duration": 0,    "status": "pending"}
+  ]
+}
+```
+
+Use `import datetime; int(datetime.datetime.now().timestamp())` for unix timestamps.
+Always include all 6 phases; set `start_time: 0` for phases not yet started.
+The UI auto-refreshes every 30s and will pick up the new times.
 
 ---
 
@@ -612,6 +644,220 @@ Reservations track `gpu_start`, `gpu_count`, and optional expiry.
 |----------|-------------|
 | `/ws/chat/{conversation_id}` | Agent chat (send messages, receive streamed responses) |
 | `/ws/hyperloom/{session_id}` | Live Hyperloom session monitoring |
+
+---
+
+## Known Issues & Required Fixes
+
+### Issue 1: starlette / vLLM incompatibility (PERMANENT FIX — BLOCKS PRELUDE)
+
+**Symptom:** `TypeError: Router.__init__() got an unexpected keyword argument 'on_startup'`
+in `vllm/entrypoints/openai/api_server.py` — kills EVERY vLLM CLI subcommand at import time.
+PRELUDE warmup fails, baseline_tput=0, and the entire optimization is blocked.
+
+**Root cause:** Two dependency chains fight:
+- `hyperloom` installs `mcp 2.3.0` → `fastmcp 4.1.0` → `fastmcp-slim[client,server]` → `starlette>=1.0.1`
+- `vllm 0.9.x` requires `fastapi 0.115.14` → `starlette<0.47.0`
+- starlette 1.x removed `on_startup`/`on_shutdown` from `Router.__init__()`, breaking fastapi's APIRouter.
+
+**Fix:** Pin starlette as the VERY FIRST pip install, BEFORE hyperloom or any other install that
+could pull in `fastmcp`/`mcp` and re-upgrade starlette. Also pin with PIP_CONSTRAINT to prevent
+re-breaks during the session.
+
+```bash
+pip install "starlette<0.47.0,>=0.40.0" "sse-starlette<4.0" -q --break-system-packages
+export PIP_CONSTRAINT=/tmp/starlette-pin.txt
+echo 'starlette<0.47.0' > /tmp/starlette-pin.txt
+```
+
+**Re-break risk:** `fastmcp`'s unbounded `starlette>=1.0.1` means ANY future `pip install` in the
+container that re-resolves deps can silently re-upgrade starlette and kill vLLM serve mid-session.
+The PIP_CONSTRAINT pin prevents this.
+
+### Issue 2: SSH tunnel required for LLM API gateway (BLOCKS ALL PHASES)
+
+**Symptom:** `llm-api.amd.com` is unreachable from cluster nodes (firewall returns HTTP 000).
+Without a working LLM API, the Claude orchestrator and specialist agents cannot function.
+
+**Setup (must run BEFORE Docker launch):**
+
+```bash
+# Check if tunnel already exists
+ssh -i ~/.ssh/id_ed25519_moba -o BatchMode=yes rghaffar@10.194.30.169 \
+  "curl -sk --max-time 5 -o /dev/null -w '%{http_code}' https://127.0.0.1:18443/"
+
+# If HTTP 000 (tunnel not running), start it from LOCAL machine:
+ssh -i ~/.ssh/id_ed25519_moba -R 18443:llm-api.amd.com:443 -N -f rghaffar@10.194.30.169
+```
+
+**Docker fix:** Use `--add-host llm-api.amd.com:127.0.0.1` so the SSL cert validates
+(cert CN = `llm-api.amd.com`, not `127.0.0.1`). Without this, every HTTPS call inside
+the container gets `SSL: CERTIFICATE_VERIFY_FAILED`.
+
+### Issue 3: AMD gateway requires custom auth header (BLOCKS ALL PHASES)
+
+**Symptom:** Anthropic API returns 401 even with valid `x-api-key` / `ANTHROPIC_API_KEY`.
+
+**Fix:** AMD's API gateway requires `Ocp-Apim-Subscription-Key` header:
+```bash
+-e ANTHROPIC_CUSTOM_HEADERS='Ocp-Apim-Subscription-Key: 57de3abaae7a4e5c981485742326d044'
+```
+
+### Issue 4: claude-opus-5-5 not available in gateway catalog
+
+**Symptom:** `WARNING — 'claude-opus-5-5' not in gateway catalog`
+
+**Behavior:** Hyperloom auto-falls back to `claude-opus-5`. This is harmless — no action needed.
+
+### Issue 5: .env owned by root from previous Docker run
+
+**Symptom:** `~/hyperloom/.env` is owned by root, can't be modified from user space.
+
+**Behavior:** Not a blocker — `kernel-agent.env.sh` overrides all env vars at runtime via
+`source`. The .env values are used as fallback only. If needed, modify from inside Docker:
+`docker exec hyperloom-optimize bash -c 'cat > /hyperloom/.env << EOF ... EOF'`
+
+### Issue 6: Magpie patcher warnings (NON-BLOCKING)
+
+**Symptom:** `_magpie_patcher: generic vLLM client block not found in vllm_gfx12_mm.sh`
+
+**Behavior:** Cosmetic warning. Benchmarks still run.
+
+### Issue 7: SSH tunnel drops mid-session (BLOCKS ALL LLM API CALLS)
+
+**Symptom:** `ECONNREFUSED` / `Connection refused` errors from Claude/OpenAI API mid-session.
+The orchestrator exhausts retries (9/10) and stalls. New specialists can't start.
+
+**Root cause:** The SSH reverse tunnel (`-R 18443:llm-api.amd.com:443`) is a background process
+that gets killed when the shell session ends or the connection drops. Claude Code's bash tool
+kills child processes between tool calls, so `nohup`/`tmux`/`screen` approaches fail.
+
+**Permanent fix — use systemd user service (REQUIRED before every run):**
+```bash
+# On InferForge server, run ONCE to create persistent tunnel service:
+mkdir -p ~/.config/systemd/user
+cat > ~/.config/systemd/user/hl-tunnel.service << 'EOF'
+[Unit]
+Description=Hyperloom LLM API SSH Tunnel
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/ssh -i /home/rghaffari/.ssh/id_ed25519_moba \
+  -o StrictHostKeyChecking=no -o BatchMode=yes \
+  -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+  -o ExitOnForwardFailure=yes \
+  -R 18443:llm-api.amd.com:443 -N rghaffar@10.194.30.169
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=default.target
+EOF
+systemctl --user daemon-reload
+systemctl --user enable --now hl-tunnel.service
+systemctl --user status hl-tunnel.service
+```
+
+**Verify tunnel before every run:**
+```bash
+ssh -i ~/.ssh/id_ed25519_moba -o BatchMode=yes rghaffar@10.194.30.169 \
+  "curl -sk --max-time 5 -o /dev/null -w '%{http_code}' https://127.0.0.1:18443/"
+# Must return 404 (not 000). If 000, restart service: systemctl --user restart hl-tunnel
+```
+
+### Issue 8: vLLM v1 engine torch.dynamo crash on ROCm aiter RMSNorm (BLOCKS PRELUDE)
+
+**Symptom:** `RuntimeError: _thread.allocate_lock` inside `profile_run()` — vLLM server dies
+during CUDA graph capture. `server_init_dead` in baseline logs.
+
+**Root cause:** `vllm/model_executor/layers/layernorm.py` calls `aiter` directly from inside
+a `torch.compile` region. Dynamo traces into aiter's lazy-JIT wrapper (`get_gfx → subprocess.run
+→ _thread.allocate_lock`) and crashes. All other aiter integrations (fused_moe, MLA, AITER-FA)
+correctly use `direct_register_custom_op` to make them opaque to Dynamo.
+
+**Fix:** Hyperloom's specialist agent automatically generates and applies this patch.
+The fix registers `rocm_aiter_rms_norm` and `rocm_aiter_fused_add_rms_norm` as custom ops.
+Set `VLLM_ROCM_USE_AITER_RMSNORM=0` as a workaround env var to skip the broken path entirely:
+```bash
+-e VLLM_ROCM_USE_AITER_RMSNORM=0 -e VLLM_ROCM_USE_AITER=1
+```
+
+### Issue 9: Timeline PRELUDE never advances in UI despite session completing
+
+**Symptom:** UI shows "PRELUDE" stuck forever even after session finishes.
+
+**Root cause:** The agent's timeline PATCH calls target the wrong session ID or fail silently.
+The InferForge session ID (UUID in DB) ≠ Hyperloom's internal session ID.
+
+**Fix:** After session completes, manually update the DB:
+```bash
+python3 -c "
+import sqlite3, json
+conn = sqlite3.connect('/home/rghaffari/inferforge/inferforge/inferforge.db')
+# Get session ID from: curl http://localhost:7801/api/hyperloom/sessions
+timeline = [
+    {'name': 'PRELUDE',         'status': 'complete', 'start_time': START, 'end_time': END, 'duration': DUR},
+    {'name': 'ENABLEMENT',      'status': 'complete', 'start_time': START, 'end_time': END, 'duration': DUR},
+    {'name': 'FRAMEWORK_AGENT', 'status': 'complete', 'start_time': START, 'end_time': END, 'duration': DUR},
+    {'name': 'KERNEL_AGENT',    'status': 'complete', 'start_time': START, 'end_time': END, 'duration': DUR},
+    {'name': 'SWEEP',           'status': 'complete', 'start_time': START, 'end_time': END, 'duration': DUR},
+    {'name': 'CLOSE',           'status': 'complete', 'start_time': START, 'end_time': END, 'duration': DUR},
+]
+conn.execute('UPDATE hyperloom_sessions SET status=?, timeline_json=?, outcome_gain_pct=? WHERE id=?',
+    ('completed', json.dumps(timeline), GAIN_PCT, 'SESSION_UUID_HERE'))
+conn.commit()
+"
+```
+The agent should ALWAYS PATCH the timeline immediately after each phase transition and at session close.
+
+---
+
+### Complete corrected Docker launch command for Hyperloom Optimize
+
+```bash
+# PRE-FLIGHT: Ensure SSH tunnel is active (run from LOCAL machine if needed)
+# ssh -i ~/.ssh/id_ed25519_moba -R 18443:llm-api.amd.com:443 -N -f rghaffar@10.194.30.169
+
+docker rm -f hyperloom-optimize 2>/dev/null; docker run -d --name hyperloom-optimize \
+  --device=/dev/kfd --device=/dev/dri --group-add video \
+  --network=host --shm-size 64g \
+  --add-host llm-api.amd.com:127.0.0.1 \
+  -v ~/hyperloom:/hyperloom \
+  -v ~/hl-data:/hl-data \
+  -v /mnt/GT_WEKA_NFS/new_gt/models:/mnt/GT_WEKA_NFS/new_gt/models \
+  -e ANTHROPIC_BASE_URL=https://llm-api.amd.com:18443/Anthropic \
+  -e ANTHROPIC_API_KEY=57de3abaae7a4e5c981485742326d044 \
+  -e ANTHROPIC_CUSTOM_HEADERS='Ocp-Apim-Subscription-Key: 57de3abaae7a4e5c981485742326d044' \
+  -e OPENAI_BASE_URL=https://llm-api.amd.com:18443/OpenAI/deployments/gpt-4o \
+  -e OPENAI_API_KEY=57de3abaae7a4e5c981485742326d044 \
+  rocm/vllm-dev:nightly \
+  bash -c "
+    # CRITICAL: Pin starlette FIRST to prevent vLLM import crash (Issue 1)
+    pip install 'starlette<0.47.0,>=0.40.0' 'sse-starlette<4.0' -q --break-system-packages && \
+    echo 'starlette<0.47.0' > /tmp/starlette-pin.txt && \
+    export PIP_CONSTRAINT=/tmp/starlette-pin.txt && \
+    cd /hyperloom && pip install -e . --no-deps -q && \
+    pip install cffi cryptography --break-system-packages -q --force-reinstall && \
+    export USER_DATA_PATH=/hl-data REPO_ROOT=/hyperloom KERNEL_AGENT_ENV=/hl-data/runtime/kernel-agent.env.sh && \
+    source /hl-data/runtime/local-setup.env.sh && source /hl-data/runtime/kernel-agent.env.sh && \
+    bash /hyperloom/src/hyperloom/inference_optimizer/assets/install.sh || true && \
+    source /hl-data/runtime/kernel-agent.env.sh && \
+    hyperloom optimize \
+      --model <MODEL_PATH> \
+      --framework vllm \
+      --gpu-type mi300x \
+      --tp <TP> \
+      --precision bfloat16 \
+      --max-hours 2.0 \
+      --critic-mock
+  " > ~/hyperloom-run.log 2>&1
+```
+
+**Key flags explained:**
+- `--add-host llm-api.amd.com:127.0.0.1` — routes AMD API gateway through SSH tunnel on port 18443 so SSL cert validates (Issue 2)
+- `ANTHROPIC_CUSTOM_HEADERS` — required by AMD gateway; standard `x-api-key` alone returns 401 (Issue 3)
+- `starlette<0.47.0` pinned first + `PIP_CONSTRAINT` — prevents vLLM import crash AND re-break during session (Issue 1)
+- `--critic-mock` — uses mock critic (no external critic API needed); specialist patches auto-integrate
 
 ---
 

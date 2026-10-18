@@ -56,9 +56,11 @@ def api_list_deployments():
 
 @router.post("/deployments", status_code=201)
 def api_create_deployment(body: DeploymentCreate):
+    import sqlite3
     did = _short_id()
     conn = get_connection()
-    with conn:
+
+    def _insert(benchmark_run_id):
         conn.execute(
             "INSERT INTO deployments "
             "(id, project_id, benchmark_run_id, recipe_id, model_name, framework, "
@@ -68,7 +70,7 @@ def api_create_deployment(body: DeploymentCreate):
             (
                 did,
                 body.project_id,
-                body.benchmark_run_id,
+                benchmark_run_id,
                 body.recipe_id,
                 body.model_name,
                 body.framework,
@@ -83,6 +85,16 @@ def api_create_deployment(body: DeploymentCreate):
                 body.sla_throughput_floor_tps,
             ),
         )
+
+    try:
+        with conn:
+            _insert(body.benchmark_run_id)
+    except sqlite3.IntegrityError:
+        # FK constraint failed — benchmark_run_id doesn't match any record
+        # (agent may have used full UUID vs short ID). Retry without it.
+        with conn:
+            _insert(None)
+
     return {"id": did, "model_name": body.model_name, "state": "pending"}
 
 
@@ -120,8 +132,8 @@ def api_promote_deployment(deployment_id: str):
     if not row:
         raise HTTPException(404, f"Deployment {deployment_id} not found")
     d = dict(row)
-    if d["state"] not in ("pending", "canary"):
-        raise HTTPException(400, f"Cannot promote deployment in state '{d['state']}'")
+    if d["state"] != "canary":
+        raise HTTPException(400, f"Cannot promote: deployment must be in 'canary' state, not '{d['state']}'. Use PATCH to transition through building → deploying → canary first.")
     with conn:
         conn.execute(
             "UPDATE deployments SET state = 'active', canary_pct = 100, "

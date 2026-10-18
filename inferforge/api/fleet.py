@@ -188,7 +188,11 @@ def api_upsert_node(body: NodeUpsert):
         if body.gpu_platform is not None:
             updates["gpu_platform"] = body.gpu_platform
         if body.gpu_count is not None:
-            updates["gpu_count"] = body.gpu_count
+            # Sanity check: real GPU counts are 1-64. Reject obviously wrong values.
+            if 1 <= body.gpu_count <= 64:
+                updates["gpu_count"] = body.gpu_count
+            else:
+                log.warning("Rejected suspicious gpu_count=%d for node %s", body.gpu_count, body.hostname)
         if body.hbm_per_gpu_gb is not None:
             updates["hbm_per_gpu_gb"] = body.hbm_per_gpu_gb
         if body.status is not None:
@@ -209,7 +213,9 @@ def api_upsert_node(body: NodeUpsert):
                 "(id, hostname, ip_address, ssh_user, gpu_platform, gpu_count, "
                 "hbm_per_gpu_gb, status) VALUES (?,?,?,?,?,?,?,?)",
                 (nid, body.hostname, body.ip_address, body.ssh_user,
-                 body.gpu_platform, body.gpu_count or 0, body.hbm_per_gpu_gb or 0,
+                 body.gpu_platform,
+                 body.gpu_count if (body.gpu_count and 1 <= body.gpu_count <= 64) else 0,
+                 body.hbm_per_gpu_gb or 0,
                  body.status or "unknown"),
             )
     return {"id": nid, "hostname": body.hostname, "status": body.status or "unknown"}

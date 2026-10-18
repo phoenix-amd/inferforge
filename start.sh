@@ -40,8 +40,19 @@ python3 -c "import multipart" 2>/dev/null || { echo "  [setup] Installing python
 python3 -c "import bcrypt" 2>/dev/null || { echo "  [setup] Installing bcrypt..."; pip3 install bcrypt --break-system-packages -q; }
 python3 -c "import jwt" 2>/dev/null || { echo "  [setup] Installing pyjwt..."; pip3 install pyjwt --break-system-packages -q; }
 
-# Check API credentials
+# Load .env if present (makes all vars available to uvicorn and subprocesses)
 cd "$SCRIPT_DIR"
+if [ -f ".env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source .env
+  set +a
+  echo "  Env:      .env loaded"
+else
+  echo "  Env:      no .env file found (using shell environment)"
+fi
+
+# Check API credentials
 python3 -c "
 import sys; sys.path.insert(0, '.')
 try:

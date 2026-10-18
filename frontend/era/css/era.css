@@ -129,6 +129,37 @@
     text-transform: uppercase;
 }
 
+/* Hyperloom cluster job running banner */
+.era-hyperloom-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 14px;
+    background: rgba(255, 170, 0, 0.12);
+    border: 1px solid rgba(255, 170, 0, 0.5);
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    color: #ffaa00;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    animation: hl-banner-glow 2s ease-in-out infinite alternate;
+}
+.era-hyperloom-pulse {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ffaa00;
+    flex-shrink: 0;
+    animation: pulse 1.2s infinite;
+    box-shadow: 0 0 8px #ffaa00;
+}
+@keyframes hl-banner-glow {
+    from { border-color: rgba(255,170,0,0.35); box-shadow: none; }
+    to   { border-color: rgba(255,170,0,0.8);  box-shadow: 0 0 10px rgba(255,170,0,0.2); }
+}
+
 .era-header-right {
     display: flex;
     align-items: center;
@@ -704,7 +735,7 @@
 }
 .era-telem-modal-title {
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: 15px;
     font-weight: 700;
     letter-spacing: 0.12em;
     color: var(--cyan);
@@ -859,13 +890,12 @@
 #panel-timeline .era-panel-body {
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    overflow: auto;
 }
 
 #canvas-gantt {
     width: 100%;
-    flex: 1;
-    min-height: 0;
+    flex: 1 0 auto;
     display: block;
 }
 
@@ -880,17 +910,17 @@
 .era-legend-item {
     display: flex;
     align-items: center;
-    gap: 4px;
-    font-size: 9px;
+    gap: 5px;
+    font-size: 13px;
     font-family: var(--mono);
     color: var(--text-dim);
     letter-spacing: 0.05em;
 }
 
 .era-legend-swatch {
-    width: 8px;
-    height: 4px;
-    border-radius: 1px;
+    width: 14px;
+    height: 5px;
+    border-radius: 2px;
     display: inline-block;
 }
 
@@ -1224,11 +1254,12 @@
 }
 
 .era-chat-messages .msg.user {
-    background: rgba(68, 136, 255, 0.12);
-    border: 1px solid rgba(68, 136, 255, 0.3);
+    background: #1f0e00;
+    border: 1px solid #7a3a00;
+    border-left: 4px solid #ff6a00;
     border-radius: 6px;
     font-size: 14px;
-    color: #e0eeff;
+    color: #ffd080;
     font-weight: 500;
     align-self: stretch;
 }
@@ -2045,6 +2076,32 @@
     color: var(--text-dim);
     display: flex;
     justify-content: space-between;
+}
+
+/* Benchmark session/all toggle */
+.era-bench-toggle {
+    display: flex;
+    border: 1px solid var(--era-border);
+    border-radius: 3px;
+    overflow: hidden;
+}
+.era-bench-toggle-btn {
+    background: rgba(255,255,255,0.03);
+    border: none;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 3px 8px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.era-bench-toggle-btn.active {
+    background: rgba(0,200,150,0.18);
+    color: #00c896;
+}
+.era-bench-toggle-btn:hover:not(.active) {
+    background: rgba(255,255,255,0.07);
+    color: var(--text);
 }
 
 .era-qcmd-reset {

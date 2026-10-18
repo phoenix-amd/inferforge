@@ -126,7 +126,10 @@ async def _broadcast(cid: str, event: dict) -> None:
         except Exception:
             dead.append(ws)
     for ws in dead:
-        _active_sockets[cid].remove(ws)
+        try:
+            _active_sockets[cid].remove(ws)
+        except ValueError:
+            pass
 
 
 async def _run_agent_task(cid: str, api_messages: list, skill: str, mode: str,

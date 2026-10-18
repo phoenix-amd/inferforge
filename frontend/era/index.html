@@ -13,7 +13,7 @@
 <link rel="stylesheet" href="/common/css/tables.css">
 
 <!-- Era Theme CSS -->
-<link rel="stylesheet" href="/era/css/era.css">
+<link rel="stylesheet" href="/era/css/era.css?v=1792217222">
 
 <!-- CDN: markdown-it -->
 <script src="https://cdn.jsdelivr.net/npm/markdown-it@14/dist/markdown-it.min.js"></script>
@@ -36,6 +36,10 @@
       <div class="era-session-indicator" id="era-session-indicator">
         <span class="era-session-dot"></span>
         <span class="era-session-label" id="era-session-label">NO ACTIVE SESSION</span>
+      </div>
+      <div class="era-hyperloom-banner" id="era-hyperloom-banner" style="display:none">
+        <span class="era-hyperloom-pulse"></span>
+        <span id="era-hyperloom-banner-text">HYPERLOOM RUNNING ON CLUSTER</span>
       </div>
     </div>
     <div class="era-header-right">
@@ -147,6 +151,11 @@
         </div>
         <div class="era-panel-controls">
           <span class="era-panel-badge badge-green" id="benchmark-count">0 RUNS</span>
+          <!-- Session / All toggle -->
+          <div class="era-bench-toggle" title="Session: show only runs from the current active session&#10;All: show all historical runs from the database">
+            <button id="bench-toggle-session" class="era-bench-toggle-btn active" onclick="Era.setBenchmarkFilter('session')">Session</button>
+            <button id="bench-toggle-all" class="era-bench-toggle-btn" onclick="Era.setBenchmarkFilter('all')">All</button>
+          </div>
           <button class="era-panel-btn" onclick="Era._showEmptyBenchmarks()" title="Clear charts">C</button>
           <button class="era-panel-btn" onclick="Era.loadBenchmarkHistory()" title="Load past benchmark runs">H</button>
           <button class="era-panel-btn" onclick="Era.refreshBenchmarks()" title="Refresh">R</button>
@@ -409,16 +418,16 @@
         </div>
       </div>
 
-      <!-- QUICK COMMAND BUTTONS -->
+      <!-- QUICK COMMAND BUTTONS — ordered by inference workflow -->
       <div class="era-quick-cmds">
-        <button class="era-qcmd" onclick="Era.quickCommand('Detect GPUs on ALL cluster nodes (head + workers) via SSH, register each node in the fleet API using POST /api/fleet/nodes/upsert with ip_address, gpu_platform, gpu_count, hbm_per_gpu_gb, status=online')">🔍 Detect GPUs</button>
-        <button class="era-qcmd" onclick="Era.memoryCalcCommand()">🧮 Memory Calc</button>
-        <button class="era-qcmd" onclick="Era.quickCommand('Run inference benchmark and report throughput and latency')">⚡ Benchmark</button>
-        <button class="era-qcmd" onclick="Era.quickCommand('Deploy the best configuration found so far')">🚀 Deploy Best</button>
-        <button class="era-qcmd" onclick="Era.quickCommand('Show current GPU utilization and memory usage')">📊 GPU Status</button>
-        <button class="era-qcmd" onclick="Era.quickCommand('Optimize configuration for maximum throughput within SLA targets')">🎯 Auto-Optimize</button>
-        <button class="era-qcmd" onclick="Era.stopJob()">🛑 Stop All</button>
-        <button class="era-qcmd era-qcmd-reset" onclick="Era.resetDashboard()" title="Reset all panels to clean state">🔄 Reset</button>
+        <button class="era-qcmd" onclick="Era.quickCommand('[GPU DETECTION ONLY — do NOT run memory calculator, do NOT run simulation, do NOT launch Docker] Detect GPUs on ALL cluster nodes (head + workers) via SSH using id_ed25519_moba. Run: amd-smi static --asic to get GPU model and count. Then register each node via POST /api/fleet/nodes/upsert with hostname, ip_address, gpu_platform, gpu_count, hbm_per_gpu_gb=192, status=online. Report the detected GPU model, count, and HBM per node. Stop after fleet registration — do not proceed to memory analysis.')">1· 🔍 Detect GPUs</button>
+        <button class="era-qcmd" onclick="Era.memoryCalcCommand()">2· 🧮 Memory Calc</button>
+        <button class="era-qcmd" onclick="Era.quickCommand('Run inference benchmark and report throughput and latency')">3· ⚡ Benchmark</button>
+        <button class="era-qcmd" onclick="Era.autoOptimizeCommand()">4· 🎯 Auto-Optimize</button>
+        <button class="era-qcmd" onclick="Era.quickCommand('Show current GPU utilization and memory usage')">5· 📊 GPU Status</button>
+        <button class="era-qcmd" onclick="Era.deployBestCommand()">6· 🚀 Deploy Best</button>
+        <button class="era-qcmd" onclick="Era.stopJob()">7· 🛑 Stop All</button>
+        <button class="era-qcmd era-qcmd-reset" onclick="Era.resetDashboard()" title="Reset all panels to clean state">8· 🔄 Reset</button>
       </div>
 
       <div class="era-chat-input-area">
@@ -437,6 +446,7 @@
           <select id="sel-runtype" class="era-chat-select" title="Run Type">
             <option value="simulation" selected>Simulation</option>
             <option value="real">Real Run</option>
+            <option value="optimize">⚡ Optimize</option>
           </select>
         </div>
         <div class="era-chat-input-row">
@@ -465,13 +475,13 @@
     </div>
     <div style="flex:1;padding:12px;overflow:hidden;display:flex;flex-direction:column;gap:8px">
       <canvas id="canvas-gantt-modal" style="flex:1;width:100%"></canvas>
-      <div class="era-phase-legend" style="flex-shrink:0;font-size:11px;gap:16px">
-        <span class="era-legend-item"><span class="era-legend-swatch" style="background:#4488ff;width:20px;height:5px"></span>PRELUDE</span>
-        <span class="era-legend-item"><span class="era-legend-swatch" style="background:#ffaa00;width:20px;height:5px"></span>ENABLEMENT</span>
-        <span class="era-legend-item"><span class="era-legend-swatch" style="background:#00c896;width:20px;height:5px"></span>FRAMEWORK</span>
-        <span class="era-legend-item"><span class="era-legend-swatch" style="background:#8866ff;width:20px;height:5px"></span>KERNEL</span>
-        <span class="era-legend-item"><span class="era-legend-swatch" style="background:#00d4ff;width:20px;height:5px"></span>SWEEP</span>
-        <span class="era-legend-item"><span class="era-legend-swatch" style="background:#666680;width:20px;height:5px"></span>CLOSE</span>
+      <div class="era-phase-legend" style="flex-shrink:0;font-size:15px;gap:20px">
+        <span class="era-legend-item"><span class="era-legend-swatch" style="background:#4488ff;width:22px;height:6px"></span>PRELUDE</span>
+        <span class="era-legend-item"><span class="era-legend-swatch" style="background:#ffaa00;width:22px;height:6px"></span>ENABLEMENT</span>
+        <span class="era-legend-item"><span class="era-legend-swatch" style="background:#00c896;width:22px;height:6px"></span>FRAMEWORK</span>
+        <span class="era-legend-item"><span class="era-legend-swatch" style="background:#8866ff;width:22px;height:6px"></span>KERNEL</span>
+        <span class="era-legend-item"><span class="era-legend-swatch" style="background:#00d4ff;width:22px;height:6px"></span>SWEEP</span>
+        <span class="era-legend-item"><span class="era-legend-swatch" style="background:#666680;width:22px;height:6px"></span>CLOSE</span>
       </div>
     </div>
   </div>
@@ -515,14 +525,14 @@
 </div>
 
 <!-- Common JS -->
-<script src="/common/js/api.js"></script>
-<script src="/common/js/state.js"></script>
-<script src="/common/js/markdown.js"></script>
-<script src="/common/js/chat.js"></script>
-<script src="/common/js/charts.js"></script>
+<script src="/common/js/api.js?v=1792217222"></script>
+<script src="/common/js/state.js?v=1792217222"></script>
+<script src="/common/js/markdown.js?v=1792217222"></script>
+<script src="/common/js/chat.js?v=1792217222"></script>
+<script src="/common/js/charts.js?v=1792217222"></script>
 
 <!-- Era Theme JS -->
-<script src="/era/js/era.js"></script>
+<script src="/era/js/era.js?v=1792217222"></script>
 
 </body>
 </html>

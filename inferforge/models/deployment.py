@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 class DeploymentState(str, Enum):
     pending = "pending"
+    building = "building"
     deploying = "deploying"
     canary = "canary"
     promoted = "promoted"
@@ -18,7 +19,8 @@ class DeploymentState(str, Enum):
 
 # Valid state transitions
 _VALID_TRANSITIONS: dict[DeploymentState, set[DeploymentState]] = {
-    DeploymentState.pending: {DeploymentState.deploying, DeploymentState.stopped},
+    DeploymentState.pending: {DeploymentState.building, DeploymentState.deploying, DeploymentState.stopped},
+    DeploymentState.building: {DeploymentState.deploying, DeploymentState.rollback, DeploymentState.stopped},
     DeploymentState.deploying: {DeploymentState.canary, DeploymentState.promoted, DeploymentState.rollback, DeploymentState.stopped},
     DeploymentState.canary: {DeploymentState.promoted, DeploymentState.rollback, DeploymentState.stopped},
     DeploymentState.promoted: {DeploymentState.rollback, DeploymentState.stopped},

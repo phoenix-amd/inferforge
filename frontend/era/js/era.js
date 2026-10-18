@@ -29,14 +29,22 @@ const Era = {
         this._sessionActive = sessionStorage.getItem('inferforge_session_active') === '1';
 
         if (this._sessionActive) {
-            // Returning session — load everything from DB
+            // Returning session — load everything from DB EXCEPT deployments
+            // (deployment pipeline always starts clean on page load)
             await Promise.all([
                 this.loadStatus(),
                 this.loadFleet(),
                 this.loadSessions(),
                 this.loadBenchmarks(),
-                this.loadDeployments(),
             ]);
+            this._showEmptyDeployments();
+            // Ignore any pre-existing deployments so the pipeline stays clean
+            // until a NEW deployment is created in this session
+            try {
+                const dd = await API.get('/deployments');
+                const lat = dd?.deployments?.[0];
+                if (lat) this._ignoreDeployBefore = lat.id;
+            } catch (_) {}
         } else {
             // Fresh login — show clean panels (no historical data)
             await this.loadStatus();
@@ -45,10 +53,18 @@ const Era = {
             this._showEmptyDeployments();
         }
 
-        // Always start GPU telemetry polling — so heatmap history
-        // accumulates from program start, not just after first message
+        // Always start GPU telemetry polling
         this._telemetryTimer = setInterval(() => this._pollTelemetry(), 10000);
         this._pollTelemetry(); // immediate first poll
+
+        // Deployment panel auto-refresh every 5s — only when session is active
+        setInterval(() => { if (this._sessionActive) this.loadDeployments(); }, 5000);
+
+        // Timeline auto-refresh every 10s — only while a running session exists
+        setInterval(() => {
+            const sel = document.getElementById('timeline-session-select');
+            if (sel && sel.value) this.loadTimeline();
+        }, 10000);
 
         this.initKeyboard();
         Chat.initScrollTracking();
@@ -817,24 +833,102 @@ const Era = {
     async loadSessions() {
         try {
             const data = await API.get('/hyperloom/sessions');
-            if (!data || !data.sessions) return;
-
             const sel = document.getElementById('timeline-session-select');
             if (!sel) return;
             sel.innerHTML = '<option value="">Select Session</option>';
 
+            if (!data || !data.sessions || data.sessions.length === 0) {
+                // Show helpful placeholder on the canvas
+                const canvas = document.getElementById('canvas-gantt');
+                if (canvas) {
+                    const w = canvas.parentElement?.clientWidth || 300;
+                    const h = canvas.parentElement?.clientHeight || 180;
+                    canvas.width = w; canvas.height = h;
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = '#0a0a14';
+                    ctx.fillRect(0, 0, w, h);
+                    ctx.fillStyle = '#555577';
+                    ctx.font = '11px Inter, sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('No Hyperloom sessions yet', w / 2, h / 2 - 14);
+                    ctx.font = '9px Inter, sans-serif';
+                    ctx.fillText('Click 4· Auto-Optimize to start a session', w / 2, h / 2 + 4);
+                    ctx.fillStyle = '#333355';
+                    ctx.fillText('Requires: HYPERLOOM_KB_URL + HYPERLOOM_KB_TOKEN in .env', w / 2, h / 2 + 20);
+                }
+                return;
+            }
+
             for (const s of data.sessions) {
                 const opt = document.createElement('option');
                 opt.value = s.id;
-                opt.textContent = (s.model || 'Session') + ' - ' + (s.status || 'unknown');
+                opt.textContent = (s.model_name || s.model || 'Session') + ' — ' + (s.status || 'unknown');
                 sel.appendChild(opt);
             }
 
             if (data.sessions.length > 0) {
                 sel.value = data.sessions[0].id;
-                this.loadTimeline();
+                // Delay render so panel has time to layout and report correct clientWidth
+                requestAnimationFrame(() => this.loadTimeline());
             }
         } catch (_) {}
+    },
+
+    _timelineToEvents(data) {
+        const phaseColors = {
+            'PRELUDE':          '#4488ff',
+            'ENABLEMENT':       '#ffaa00',
+            'FRAMEWORK_AGENT':  '#00c896',
+            'KERNEL_AGENT':     '#8866ff',
+            'SWEEP':            '#00d4ff',
+            'CLOSE':            '#666680',
+        };
+        const allPhaseNames = ['PRELUDE', 'ENABLEMENT', 'FRAMEWORK_AGENT', 'KERNEL_AGENT', 'SWEEP', 'CLOSE'];
+        const sessionDone = data.session_status && data.session_status !== 'running';
+        const nowSec = Math.floor(Date.now() / 1000);
+        const phaseMap = {};
+        for (const p of (data.phases || [])) {
+            const name = p.name || p.phase || '';
+            phaseMap[name] = p;
+        }
+
+        // Find the latest known end time for capping running phases when session is done
+        let latestEnd = 0;
+        for (const p of (data.phases || [])) {
+            if (p.end_time > latestEnd) latestEnd = p.end_time;
+            if (p.start_time > latestEnd) latestEnd = p.start_time;
+        }
+
+        return allPhaseNames.map(name => {
+            const p = phaseMap[name];
+            if (!p || !p.start_time || p.start_time <= 0) {
+                // Pending phase — show as a thin placeholder
+                return {
+                    label: name,
+                    start: 0,
+                    end: 0,
+                    color: phaseColors[name] || '#333355',
+                    status: 'pending',
+                    _pending: true,
+                };
+            }
+            let endTime;
+            if (p.end_time > 0) {
+                endTime = p.end_time;
+            } else if (p.status === 'running' && !sessionDone) {
+                endTime = nowSec;  // still ticking
+            } else {
+                // Session is done OR phase is not running — use latest known time
+                endTime = sessionDone ? (latestEnd || p.start_time + (p.duration || 60)) : p.start_time + (p.duration || 300);
+            }
+            return {
+                label: name,
+                start: p.start_time,
+                end: endTime,
+                color: phaseColors[name] || '#4488ff',
+                status: p.status || 'complete',
+            };
+        });
     },
 
     async loadTimeline() {
@@ -850,28 +944,12 @@ const Era = {
             const currentPhase = data.current_phase || data.phases[data.phases.length - 1]?.name || '--';
             if (phaseBadge) phaseBadge.textContent = currentPhase.toUpperCase();
 
-            const phaseColors = {
-                'PRELUDE':          '#4488ff',
-                'ENABLEMENT':       '#ffaa00',
-                'FRAMEWORK_AGENT':  '#00c896',
-                'KERNEL_AGENT':     '#8866ff',
-                'SWEEP':            '#00d4ff',
-                'CLOSE':            '#666680',
-            };
-
-            const events = data.phases.map(p => ({
-                label: p.name || p.phase || '',
-                start: p.start_time || 0,
-                end: p.end_time || p.start_time + (p.duration || 60),
-                color: phaseColors[p.name] || phaseColors[p.phase] || '#4488ff',
-                status: p.status || 'complete',
-            }));
-
+            const events = this._timelineToEvents(data);
             const canvas = document.getElementById('canvas-gantt');
             if (canvas && events.length > 0) {
                 Charts.drawGanttChart(canvas, events, {
                     title: 'Hyperloom Optimization Phases',
-                    rowHeight: 24,
+                    rowHeight: 44,
                 });
             }
         } catch (_) {}
@@ -887,12 +965,56 @@ const Era = {
             const data = await API.get('/benchmark-runs');
             if (!data || !data.runs) return;
 
-            const countBadge = document.getElementById('benchmark-count');
-            if (countBadge) countBadge.textContent = data.runs.length + ' RUNS';
+            // Apply session/all filter
+            const filtered = this._applyBenchmarkFilter(data.runs);
 
-            this._renderBenchmarkCharts(data.runs);
-            this._renderBenchmarkMetrics(data.runs);
+            const countBadge = document.getElementById('benchmark-count');
+            if (countBadge) {
+                const label = this._benchmarkFilter === 'session' ? 'SESSION' : 'ALL';
+                countBadge.textContent = filtered.length + ' RUNS (' + label + ')';
+            }
+
+            if (filtered.length === 0 && this._benchmarkFilter === 'session') {
+                this._showEmptyBenchmarks();
+                const countBadge = document.getElementById('benchmark-count');
+                if (countBadge) countBadge.textContent = '0 RUNS (SESSION)';
+                // Draw placeholder message on TTFT canvas
+                const c2 = document.getElementById('canvas-ttft');
+                if (c2) {
+                    const w = c2.parentElement?.clientWidth || 400;
+                    const h = c2.parentElement?.clientHeight || 120;
+                    c2.width = w; c2.height = h;
+                    const ctx = c2.getContext('2d');
+                    ctx.fillStyle = '#0a0a14';
+                    ctx.fillRect(0, 0, w, h);
+                    ctx.fillStyle = '#555577';
+                    ctx.font = '11px Inter, sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('No benchmark runs in this session', w / 2, h / 2 - 8);
+                    ctx.font = '9px Inter, sans-serif';
+                    ctx.fillText('Click 3· Benchmark to run one, or switch to All', w / 2, h / 2 + 10);
+                }
+                return;
+            }
+            this._renderBenchmarkCharts(filtered);
+            this._renderBenchmarkMetrics(filtered);
         } catch (_) {}
+    },
+
+    _applyBenchmarkFilter(runs) {
+        if (this._benchmarkFilter === 'all') return runs;
+        // Session mode: only show runs from the current conversation, no fallback
+        const cid = State.currentConvId;
+        if (!cid) return [];  // no active conversation — nothing to show in session mode
+        return runs.filter(r => r.conversation_id === cid);
+    },
+
+    setBenchmarkFilter(filter) {
+        this._benchmarkFilter = filter;
+        // Update toggle buttons
+        document.getElementById('bench-toggle-session')?.classList.toggle('active', filter === 'session');
+        document.getElementById('bench-toggle-all')?.classList.toggle('active', filter === 'all');
+        this.loadBenchmarks();
     },
 
     async refreshBenchmarks() {
@@ -910,7 +1032,9 @@ const Era = {
         return parts.join('/') || ('R' + (i + 1));
     },
 
-    _chartData: {},  // Store chart data for modal re-render
+    _chartData: {},          // Store chart data for modal re-render
+    _benchmarkFilter: 'session',  // 'session' | 'all'
+    _ignoreDeployBefore: null,    // ignore old deployments until a new one appears
 
     _renderBenchmarkCharts(runs) {
         if (!runs.length) return;
@@ -1011,33 +1135,41 @@ const Era = {
         const modal = document.getElementById('timeline-modal');
         if (!modal) return;
         modal.classList.add('open');
-        // Re-render Gantt at full modal size
+        // Re-render Gantt at full modal size after layout settles
         const sel = document.getElementById('timeline-session-select');
-        const sessionId = sel ? sel.value : '';
-        if (!sessionId) return;
-        API.get('/hyperloom/sessions/' + sessionId + '/timeline').then(data => {
+        let sessionId = sel ? sel.value : '';
+        const _renderModal = (sid) => API.get('/hyperloom/sessions/' + sid + '/timeline').then(data => {
             if (!data || !data.phases) return;
-            const phaseColors = {
-                'PRELUDE': '#4488ff', 'ENABLEMENT': '#ffaa00',
-                'FRAMEWORK_AGENT': '#00c896', 'KERNEL_AGENT': '#8866ff',
-                'SWEEP': '#00d4ff', 'CLOSE': '#666680',
-            };
-            const events = data.phases.map(p => ({
-                label: p.name || p.phase || '',
-                start: p.start_time || 0,
-                end: p.end_time || p.start_time + (p.duration || 60),
-                color: phaseColors[p.name] || phaseColors[p.phase] || '#4488ff',
-                status: p.status || 'complete',
-            }));
+            const events = Era._timelineToEvents(data);
             const canvas = document.getElementById('canvas-gantt-modal');
             if (canvas && events.length > 0) {
                 const wrap = canvas.parentElement;
-                const h = (wrap?.clientHeight || 300) - 50;
-                Charts.drawGanttChart(canvas, events, { title: 'Hyperloom Optimization Phases', rowHeight: 32, height: h });
+                const h = Math.max(300, (wrap?.clientHeight || 400) - 60);
+                Charts.drawGanttChart(canvas, events, {
+                    title: 'Hyperloom Optimization Phases',
+                    rowHeight: 52,
+                    height: h,
+                    fontSize: 1.25,
+                });
             }
             const phase = document.getElementById('timeline-modal-phase');
             if (phase) phase.textContent = (data.current_phase || '--').toUpperCase();
         }).catch(() => {});
+        // Wait two frames for the modal CSS layout to settle before drawing
+        const _doRender = (sid) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => _renderModal(sid)));
+        };
+        if (sessionId) {
+            _doRender(sessionId);
+        } else {
+            API.get('/hyperloom/sessions').then(d => {
+                const sessions = d && d.sessions;
+                if (!sessions || !sessions.length) return;
+                const latest = sessions[0];
+                if (sel) { sel.value = latest.id; }
+                _doRender(latest.id);
+            }).catch(() => {});
+        }
     },
 
     closeTimelineModal(e) {
@@ -1072,9 +1204,23 @@ const Era = {
     async loadDeployments() {
         try {
             const data = await API.get('/deployments');
-            if (!data || !data.deployments || !data.deployments.length) return;
-
+            if (!data || !data.deployments || !data.deployments.length) {
+                if (!this._sessionActive) this._showEmptyDeployments();
+                return;
+            }
             const latest = data.deployments[0];
+
+            // If waiting for a NEW deployment (Deploy Best was just clicked),
+            // ignore old deployments until a genuinely new one appears
+            if (this._ignoreDeployBefore) {
+                if (latest.id === this._ignoreDeployBefore) {
+                    // Still the old deployment — keep panel empty
+                    return;
+                }
+                // New deployment detected — clear the flag
+                this._ignoreDeployBefore = null;
+            }
+
             this._renderPipeline(latest);
         } catch (_) {}
     },
@@ -1082,31 +1228,57 @@ const Era = {
     _renderPipeline(deploy) {
         if (!deploy) return;
 
+        // DB field is `state` (not `stage` or `status`)
+        // Map DB states to pipeline stage order
         const stageOrder = ['pending', 'building', 'deploying', 'canary', 'promoted'];
-        const currentStage = deploy.stage || deploy.status || 'pending';
+        const stateMap = {
+            'pending':   'pending',
+            'building':  'building',
+            'deploying': 'deploying',
+            'canary':    'canary',
+            'active':    'promoted',   // API uses 'active' for promoted
+            'promoted':  'promoted',
+            'rollback':  'pending',
+            'rolled_back': 'pending',
+            'stopped':   'pending',
+            'error':     'pending',
+        };
+        const rawState = deploy.state || deploy.stage || deploy.status || 'pending';
+        const currentStage = stateMap[rawState] || rawState;
         const currentIdx = stageOrder.indexOf(currentStage);
+        const isError = rawState === 'error' || rawState === 'rollback' || rawState === 'rolled_back';
 
         stageOrder.forEach((stage, i) => {
             const el = document.getElementById('stage-' + stage);
             if (!el) return;
             el.classList.remove('completed', 'active', 'error');
-            if (deploy.status === 'error' && i === currentIdx) {
+            if (isError && i === currentIdx) {
                 el.classList.add('error');
             } else if (i < currentIdx) {
                 el.classList.add('completed');
             } else if (i === currentIdx) {
-                el.classList.add(deploy.status === 'error' ? 'error' : 'active');
+                el.classList.add(isError ? 'error' : 'active');
             }
         });
 
         const badge = document.getElementById('deploy-status');
-        if (badge) badge.textContent = currentStage.toUpperCase();
+        if (badge) badge.textContent = rawState.toUpperCase().replace('_', ' ');
 
-        this._setText('deploy-model', deploy.model || '--');
+        // DB field is `model_name` not `model`
+        this._setText('deploy-model', deploy.model_name || deploy.model || '--');
         this._setText('deploy-framework', deploy.framework || '--');
         this._setText('deploy-tp', deploy.tp ? ('TP' + deploy.tp) : '--');
-        this._setText('deploy-nodes', deploy.nodes?.join(', ') || '--');
-        this._setText('deploy-started', deploy.started_at ? new Date(deploy.started_at).toLocaleTimeString() : '--');
+        // node_id is often null — fall back to cluster config head IP
+        let nodeDisplay = deploy.node_id || (deploy.nodes?.join?.(', ')) || '';
+        if (!nodeDisplay) {
+            try { const cfg = JSON.parse(localStorage.getItem('inferforge_era_config') || '{}'); nodeDisplay = cfg.head || ''; } catch (_) {}
+        }
+        this._setText('deploy-nodes', nodeDisplay || '--');
+        this._setText('deploy-started', deploy.created_at
+            ? new Date(deploy.created_at).toLocaleTimeString()
+            : deploy.started_at
+            ? new Date(deploy.started_at).toLocaleTimeString()
+            : '--');
     },
 
     deployBest() {
@@ -1249,13 +1421,63 @@ const Era = {
         Chat.addUserBubble(displayText);
         document.getElementById('chat-input').value = '';
         this._setBusy();
-        this._ws.send(JSON.stringify({ type: 'message', content: fullContent, skill, mode }));
+        this._ws.send(JSON.stringify({
+            type: 'message',
+            content: fullContent,
+            skill,
+            mode,
+            run_type: document.getElementById('sel-runtype')?.value || 'simulation',
+        }));
     },
 
     _sendChatCommand(text) {
         const input = document.getElementById('chat-input');
         if (input) input.value = text;
         this.sendMessage();
+    },
+
+    /**
+     * Deploy Best always runs as REAL RUN — overrides the run-type dropdown.
+     * Deployment requires actual Docker + SSH. Simulation mode is meaningless here.
+     */
+    async deployBestCommand() {
+        // Force Real Run — deployment MUST use Docker, not simulation
+        const dropdown = document.getElementById('sel-runtype');
+        if (dropdown) dropdown.value = 'real';  // stays real, no restore
+
+        // Reset pipeline to empty and ignore old deployments
+        this._showEmptyDeployments();
+        try {
+            const data = await API.get('/deployments');
+            const latest = data?.deployments?.[0];
+            if (latest) this._ignoreDeployBefore = latest.id;
+        } catch (_) {}
+
+        this._markSessionActive();
+        this.quickCommand(
+            '[RUN TYPE: REAL RUN — launch actual Docker container. NOT simulation.] ' +
+            'Deploy the best benchmark configuration. Execute each step ONCE, no repeating:\n' +
+            '1) GET /api/benchmark-runs — find best REAL run (ttft_p50 > 0, highest throughput). Exclude sims.\n' +
+            '2) POST /api/deployments {model_name, framework, tp, canary_pct:10} — save deployment ID.\n' +
+            '3) PATCH {state:"building"} immediately after creating. WAIT 2 seconds for UI to render.\n' +
+            '4) SSH id_ed25519_moba: launch Docker (rocm/vllm-dev:nightly, --network=host, --rm, best TP).\n' +
+            '5) PATCH {state:"deploying"} after Docker container starts. WAIT for health check.\n' +
+            '6) Poll /health every 15s until HTTP 200 (max 5 min).\n' +
+            '7) PATCH {state:"canary", canary_pct:10} when healthy.\n' +
+            '8) Smoke test. If pass: PATCH {state:"promoted", canary_pct:100}. If fail: PATCH {state:"rollback"}.\n' +
+            'CRITICAL RULES:\n' +
+            '- ONLY use PATCH /api/deployments/{id} for state transitions. DO NOT call POST /promote — it will be rejected.\n' +
+            '- Pipeline stages are: pending → building → deploying → canary → promoted.\n' +
+            '- You MUST PATCH to "building" BEFORE launching Docker, then PATCH to "deploying" AFTER Docker starts.\n' +
+            '- Never skip states. Each PATCH must go to the next state in sequence.\n\n' +
+            'After completing, ALWAYS end with this exact format:\n' +
+            '📊 Measured Performance (at Canary Config)\n' +
+            '| Metric | Value |\n|--------|-------|\n' +
+            '| Throughput | X tok/s |\n| Request rate | X req/s |\n| TTFT p50/p99 | Xms / Xms |\n| TPOT p50/p99 | Xms / Xms |\n| ITL p50 | Xms |\n| E2E p50 | Xms |\n| GPU | 8× MI300X (192 GB HBM) |\n| HBM Weights | X GB/GPU (X% headroom) |\n' +
+            '🔀 Deployment State Machine\n`pending ──▶ building ──▶ deploying ──▶ [canary 10%] ──▶ promoted (100%)`\n' +
+            '▶️ Next Steps\n| Action | Command |\n|--------|--------|\n| Promote | PATCH /api/deployments/{id} {"state":"promoted","canary_pct":100} |\n| Canary 25% | PATCH /api/deployments/{id} {"canary_pct":25} |\n| Rollback | POST /api/deployments/{id}/rollback |'
+        );
+        // dropdown stays at 'real' — deployment always requires Real Run
     },
 
     /**
@@ -1277,6 +1499,111 @@ const Era = {
         );
         // Restore original run type after message is queued
         setTimeout(() => { if (dropdown) dropdown.value = prev; }, 100);
+    },
+
+    /**
+     * Auto-Optimize: launches Hyperloom inside the ROCm Docker container on the cluster.
+     * Hyperloom requires ROCm torch which is only available inside the Docker image.
+     */
+    async autoOptimizeCommand() {
+        // Always force Optimize mode — this button ignores Simulation/Real Run selection
+        const runtypeSel = document.getElementById('sel-runtype');
+        if (runtypeSel) runtypeSel.value = 'optimize';
+        this._markSessionActive();
+        // Show "HYPERLOOM RUNNING" banner — job continues on cluster after UI completes
+        const banner = document.getElementById('era-hyperloom-banner');
+        if (banner) { banner.style.display = 'flex'; }
+        const bannerText = document.getElementById('era-hyperloom-banner-text');
+        if (bannerText) bannerText.textContent = 'HYPERLOOM RUNNING ON CLUSTER — DO NOT CLOSE';
+        // Create a session record immediately so the timeline shows something
+        try {
+            const cfg = JSON.parse(localStorage.getItem('inferforge_era_config') || '{}');
+            const modelId = cfg.model === 'custom' ? (cfg.modelCustom || '') : (cfg.model || 'meta-llama/Llama-3.1-70B-Instruct');
+            const sid = await API.post('/hyperloom/sessions', {
+                model_name: modelId,
+                framework_name: 'vllm',
+                host: cfg.head || '10.194.30.169',
+                gpu_type: 'MI300X',
+                tp: 8,
+                status: 'running',
+                timeline_json: [
+                    { name: 'PRELUDE',         start_time: Math.floor(Date.now() / 1000), end_time: 0, duration: 0, status: 'running' },
+                    { name: 'ENABLEMENT',      start_time: 0, end_time: 0, duration: 0, status: 'pending' },
+                    { name: 'FRAMEWORK_AGENT', start_time: 0, end_time: 0, duration: 0, status: 'pending' },
+                    { name: 'KERNEL_AGENT',    start_time: 0, end_time: 0, duration: 0, status: 'pending' },
+                    { name: 'SWEEP',           start_time: 0, end_time: 0, duration: 0, status: 'pending' },
+                    { name: 'CLOSE',           start_time: 0, end_time: 0, duration: 0, status: 'pending' },
+                ],
+            });
+            if (sid && sid.id) {
+                // Refresh timeline panel
+                await this.loadSessions();
+                const sel = document.getElementById('timeline-session-select');
+                if (sel) sel.value = sid.id;
+                this.loadTimeline();
+            }
+        } catch (_) {}
+
+        this.quickCommand(
+            '[RUN TYPE: OPTIMIZE — Hyperloom kernel optimization via Docker on cluster. Use SSH key id_ed25519_moba.]\n' +
+            'Execute each step ONCE. Do NOT try bare-metal Python install — Hyperloom requires ROCm torch which is ONLY in Docker.\n\n' +
+            'STEP 1 — Verify cluster access:\n' +
+            'ssh id_ed25519_moba rghaffar@<head-node>: echo OK\n\n' +
+            'STEP 2 — Confirm Hyperloom repo is cloned (already done: ~/hyperloom):\n' +
+            'ssh: ls ~/hyperloom/pyproject.toml && echo EXISTS\n\n' +
+            'STEP 3 — Create POST /api/hyperloom/sessions with model_name, host, gpu_type=MI300X, tp=8, status=running. Save session ID.\n\n' +
+            'STEP 4 — Network check + proxy setup:\n' +
+            'ssh: curl -sk --max-time 10 -o /dev/null -w "%{http_code}" https://llm-api.amd.com/ 2>&1\n' +
+            'If HTTP != 000 (reachable): use direct URL. Set LLM_BASE=https://llm-api.amd.com\n' +
+            'If HTTP == 000 (firewall): check if SSH reverse tunnel is active on port 18443:\n' +
+            '  ssh: curl -sk --max-time 5 -o /dev/null -w "%{http_code}" https://127.0.0.1:18443/ 2>&1\n' +
+            '  If tunnel active (HTTP != 000): Set LLM_BASE=https://127.0.0.1:18443\n' +
+            '  If tunnel NOT active: Start tunnel from LOCAL machine:\n' +
+            '    ssh -i ~/.ssh/id_ed25519_moba -R 18443:llm-api.amd.com:443 -N -f rghaffar@10.194.30.169\n' +
+            '    Then verify: ssh: curl -sk --max-time 5 https://127.0.0.1:18443/ and set LLM_BASE=https://127.0.0.1:18443\n\n' +
+            'STEP 5 — Create kernel-agent.env.sh with the resolved LLM_BASE:\n' +
+            'ssh: mkdir -p ~/hl-data/runtime && cat > ~/hl-data/runtime/kernel-agent.env.sh << EOF\n' +
+            '#!/bin/sh\n' +
+            'export USER_DATA_PATH="/hl-data"\n' +
+            'export HYPERLOOM_RUNTIME_DIR="/hl-data/runtime"\n' +
+            'export KERNEL_AGENT_ENV="/hl-data/runtime/kernel-agent.env.sh"\n' +
+            'export OPENAI_BASE_URL="${LLM_BASE}/OpenAI/deployments/gpt-4o"\n' +
+            'export OPENAI_API_KEY="57de3abaae7a4e5c981485742326d044"\n' +
+            'export ANTHROPIC_BASE_URL="${LLM_BASE}/Anthropic"\n' +
+            'export ANTHROPIC_API_KEY="57de3abaae7a4e5c981485742326d044"\n' +
+            'EOF\n' +
+            'chmod 600 ~/hl-data/runtime/kernel-agent.env.sh\n\n' +
+            'Also update ~/hyperloom/.env with the same LLM_BASE URLs (OPENAI_BASE_URL + ANTHROPIC_BASE_URL).\n\n' +
+            'STEP 6 — Launch Hyperloom inside Docker (rocm/vllm-dev:nightly):\n' +
+            'docker rm -f hyperloom-optimize 2>/dev/null; docker run -d --name hyperloom-optimize \\\n' +
+            '  --device=/dev/kfd --device=/dev/dri --group-add video \\\n' +
+            '  --network=host --shm-size 64g \\\n' +
+            '  -v ~/hyperloom:/hyperloom \\\n' +
+            '  -v ~/hl-data:/hl-data \\\n' +
+            '  -v /mnt/GT_WEKA_NFS/new_gt/models:/mnt/GT_WEKA_NFS/new_gt/models \\\n' +
+            '  rocm/vllm-dev:nightly \\\n' +
+            '  bash -c "cd /hyperloom && pip install -e . --no-deps -q && \\\n' +
+            '    pip install cffi cryptography --break-system-packages -q --force-reinstall && \\\n' +
+            '    export USER_DATA_PATH=/hl-data REPO_ROOT=/hyperloom KERNEL_AGENT_ENV=/hl-data/runtime/kernel-agent.env.sh && \\\n' +
+            '    source /hl-data/runtime/local-setup.env.sh && source /hl-data/runtime/kernel-agent.env.sh && \\\n' +
+            '    bash /hyperloom/src/hyperloom/inference_optimizer/assets/install.sh || true && \\\n' +
+            '    source /hl-data/runtime/kernel-agent.env.sh && \\\n' +
+            '    hyperloom optimize \\\n' +
+            '      --model /mnt/GT_WEKA_NFS/new_gt/models/meta-llama/Llama-2-70b-chat-hf \\\n' +
+            '      --framework vllm \\\n' +
+            '      --gpu-type mi300x \\\n' +
+            '      --tp 8 \\\n' +
+            '      --precision bfloat16 \\\n' +
+            '      --max-hours 2.0 \\\n' +
+            '      --critic-mock" > ~/hyperloom-run.log 2>&1\n\n' +
+            'STEP 7 — After each phase change, PATCH /api/hyperloom/sessions/{id} with updated timeline_json (mark completed phases with real end_time timestamps).\n\n' +
+            'STEP 8 — Tail log and report progress every 5 minutes: ssh: tail -100 ~/hyperloom-run.log\n\n' +
+            'CRITICAL RULES:\n' +
+            '- Use --gpu-type mi300x (NOT --gpu)\n' +
+            '- Use Docker, NOT bare metal pip install\n' +
+            '- Always include --critic-mock (critic API also uses same gateway)\n' +
+            '- If using tunnel proxy, add NODE_TLS_REJECT_UNAUTHORIZED=0 to Docker env for self-signed cert'
+        );
     },
 
     quickCommand(text) {
@@ -1630,7 +1957,10 @@ const Era = {
        ============================================================ */
 
     stopJob() {
-        if (!State.currentConvId) return;
+        // Guard: only run once per click (prevent multiple "Job stopped" messages)
+        if (this._stopInProgress) return;
+        this._stopInProgress = true;
+        setTimeout(() => { this._stopInProgress = false; }, 2000);
 
         // 1. Close WebSocket immediately — stops ALL streaming to UI right now
         if (this._ws) {
@@ -1640,17 +1970,33 @@ const Era = {
             this._ws = null;
         }
 
-        // 2. Cancel backend task via HTTP (kills agent + Docker containers)
-        API.post('/cancel/' + State.currentConvId).catch(() => {});
+        // 2. Cancel backend Claude agent
+        if (State.currentConvId) {
+            API.post('/cancel/' + State.currentConvId).catch(() => {});
+        }
 
-        // 3. Update UI immediately
+        // 3. Kill cluster Docker containers + mark all running sessions stopped
+        API.post('/hyperloom/kill').then(result => {
+            const hosts = result?.killed_hosts || [];
+            const n = result?.sessions_stopped || 0;
+            const msg = hosts.length
+                ? `Cluster jobs killed on: ${hosts.join(', ')} · ${n} session(s) stopped`
+                : `${n} session(s) marked stopped (no active cluster hosts found)`;
+            this._showToast(msg, 4000);
+        }).catch(() => {});
+
+        // 4. Hide the Hyperloom running banner
+        const banner = document.getElementById('era-hyperloom-banner');
+        if (banner) banner.style.display = 'none';
+
+        // 5. Update UI — single "Job stopped" message
         Chat.finalizeCurrentMsg();
         const container = Chat.container();
         if (container) {
             const notice = document.createElement('div');
             notice.className = 'msg assistant';
             notice.style.cssText = 'border-color: var(--red); background: rgba(255, 68, 102, 0.08);';
-            notice.innerHTML = '<strong>Job stopped by user</strong>';
+            notice.innerHTML = '<strong>⛔ Job stopped — cluster Docker containers killed</strong>';
             container.appendChild(notice);
             Chat.scrollToBottom(true);
         }
@@ -1799,6 +2145,8 @@ const Era = {
                 this.loadFleet();
                 this._telemetryTimer = setInterval(() => this.refreshTelemetry(), 10000);
             }
+            // Load deployment pipeline on first activation
+            this.loadDeployments();
         }
     },
 

@@ -26,13 +26,14 @@
     animation: fadeInUp 0.2s ease;
 }
 
-/* User message -- right-aligned, blue tint */
+/* User message -- vivid orange, impossible to miss */
 .msg.user {
     align-self: flex-end;
-    background: #1a2a4a;
-    border: 1px solid #2a3a5a;
+    background: #1f0e00;
+    border: 1px solid #7a3a00;
+    border-left: 4px solid #ff6a00;
     border-bottom-right-radius: var(--radius-sm);
-    color: var(--text);
+    color: #ffd080;
 }
 
 /* Assistant message -- left-aligned, dark card */

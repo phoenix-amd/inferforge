@@ -337,17 +337,20 @@ const Charts = {
     drawGanttChart(canvas, events, opts = {}) {
         if (!events.length) return;
 
-        const rowH = opts.rowHeight || 28;
+        const rowH = opts.rowHeight || 44;
+        const fontSize = opts.fontSize || 1;          // scale factor (1 = normal, 1.2 = modal)
         const w = canvas.parentElement?.clientWidth || 600;
-        const h = opts.height || Math.max(100, events.length * rowH + 60);
+        // pad.top=80: title at y=16, axis labels y=46-58, axis line y=64, rows start y=80
+        const h = opts.height || Math.max(160, events.length * rowH + 90);
         const { ctx } = this._setup(canvas, w, h);
         const C = this._colors;
 
-        const pad = { top: 30, right: 20, bottom: 20, left: 140 };
+        const pad = { top: 80, right: 24, bottom: 10, left: Math.max(170, Math.round(210 * fontSize)) };
         const plotW = w - pad.left - pad.right;
 
-        const tMin = Math.min(...events.map(e => e.start));
-        const tMax = Math.max(...events.map(e => e.end));
+        const activeEvents = events.filter(e => !(e._pending || (e.start === 0 && e.end === 0)));
+        const tMin = activeEvents.length ? Math.min(...activeEvents.map(e => e.start)) : 0;
+        const tMax = activeEvents.length ? Math.max(...activeEvents.map(e => e.end)) : 1;
         const tRange = tMax - tMin || 1;
 
         // Background
@@ -357,9 +360,10 @@ const Charts = {
         // Title
         if (opts.title) {
             ctx.fillStyle = C.muted;
-            ctx.font = '11px Inter, sans-serif';
+            ctx.font = `bold ${Math.round(13 * fontSize)}px Inter, sans-serif`;
             ctx.textAlign = 'left';
-            ctx.fillText(opts.title.toUpperCase(), pad.left, 18);
+            ctx.textBaseline = 'top';
+            ctx.fillText(opts.title.toUpperCase(), pad.left, 8);
         }
 
         const statusColors = {
@@ -371,17 +375,14 @@ const Charts = {
 
         events.forEach((ev, i) => {
             const y = pad.top + i * rowH;
-            const x1 = pad.left + ((ev.start - tMin) / tRange) * plotW;
-            const x2 = pad.left + ((ev.end - tMin) / tRange) * plotW;
-            const barW = Math.max(x2 - x1, 4);
-            const color = ev.color || statusColors[ev.status] || C.blue;
+            const isPending = ev._pending || (ev.start === 0 && ev.end === 0);
 
-            // Row label
-            ctx.fillStyle = C.muted;
-            ctx.font = '11px Inter, sans-serif';
+            // Row label — dim for pending, normal for active
+            ctx.fillStyle = isPending ? C.dim : C.muted;
+            ctx.font = `bold ${Math.round(13 * fontSize)}px Inter, sans-serif`;
             ctx.textAlign = 'right';
             ctx.textBaseline = 'middle';
-            ctx.fillText(ev.label, pad.left - 10, y + rowH / 2);
+            ctx.fillText(ev.label, pad.left - 12, y + rowH / 2);
 
             // Row line
             ctx.strokeStyle = C.grid;
@@ -391,22 +392,109 @@ const Charts = {
             ctx.lineTo(w - pad.right, y + rowH / 2);
             ctx.stroke();
 
+            if (isPending) {
+                // Pending phase — draw a dim dashed placeholder
+                ctx.fillStyle = 'rgba(60, 60, 90, 0.3)';
+                ctx.beginPath();
+                ctx.roundRect(pad.left, y + rowH / 2 - 3, plotW * 0.08, 6, 2);
+                ctx.fill();
+                // "pending" label
+                ctx.fillStyle = C.dim;
+                ctx.font = `${Math.round(11 * fontSize)}px JetBrains Mono, monospace`;
+                ctx.textAlign = 'left';
+                ctx.fillText('pending', pad.left + plotW * 0.08 + 8, y + rowH / 2 + 1);
+                return;
+            }
+
+            const x1 = pad.left + ((ev.start - tMin) / tRange) * plotW;
+            const x2 = pad.left + ((ev.end - tMin) / tRange) * plotW;
+            const barW = Math.max(x2 - x1, 4);
+            const color = ev.color || statusColors[ev.status] || C.blue;
+
             // Bar
             ctx.fillStyle = color;
             ctx.beginPath();
-            ctx.roundRect(x1, y + 4, barW, rowH - 8, 3);
+            ctx.roundRect(x1, y + 5, barW, rowH - 10, 4);
             ctx.fill();
 
-            // Duration text
+            // Pulsing glow for running phases
+            if (ev.status === 'running') {
+                ctx.save();
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 1.5;
+                ctx.globalAlpha = 0.5;
+                ctx.beginPath();
+                ctx.roundRect(x1 - 1, y + 4, barW + 2, rowH - 8, 4);
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            // Duration text on bar
             const dur = ev.end - ev.start;
-            const durStr = dur >= 60 ? (dur / 60).toFixed(1) + 'm' : dur.toFixed(0) + 's';
-            if (barW > 30) {
-                ctx.fillStyle = '#000';
-                ctx.font = '9px JetBrains Mono, monospace';
+            const durMin = (dur / 60).toFixed(1);
+            const durStr = dur >= 60 ? durMin + 'm' : dur.toFixed(0) + 's';
+            if (barW > 24) {
+                ctx.fillStyle = 'rgba(0,0,0,0.9)';
+                ctx.font = `bold ${Math.round(14 * fontSize)}px JetBrains Mono, monospace`;
                 ctx.textAlign = 'center';
                 ctx.fillText(durStr, x1 + barW / 2, y + rowH / 2 + 1);
             }
         });
+
+        // Time axis — draw between title and bars
+        const axisY = pad.top - 16;  // = 64 — well below title(8-22) and above bars(80)
+        ctx.strokeStyle = C.dim;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(pad.left, axisY);
+        ctx.lineTo(w - pad.right, axisY);
+        ctx.stroke();
+
+        const totalMin = tRange / 60;
+        // Pick nice intervals: 1m, 2m, 5m, 10m, 15m, 30m, 60m
+        const niceIntervals = [1, 2, 5, 10, 15, 30, 60];
+        let interval = 5;
+        for (const ni of niceIntervals) {
+            if (totalMin / ni <= 10 && totalMin / ni >= 2) { interval = ni; break; }
+        }
+        // Tick labels above axis line, bright and large
+        ctx.textBaseline = 'bottom';
+        ctx.font = `bold ${Math.round(13 * fontSize)}px JetBrains Mono, monospace`;
+        for (let m = 0; m <= totalMin; m += interval) {
+            const frac = totalMin > 0 ? m / totalMin : 0;
+            const x = pad.left + frac * plotW;
+            // Vertical grid line through bars
+            ctx.save();
+            ctx.strokeStyle = C.grid;
+            ctx.globalAlpha = 0.5;
+            ctx.setLineDash([3, 5]);
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(x, axisY);
+            ctx.lineTo(x, pad.top + events.length * rowH);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.restore();
+            // Tick mark on axis
+            ctx.strokeStyle = C.muted;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(x, axisY);
+            ctx.lineTo(x, axisY + 4);
+            ctx.stroke();
+            // Label (bright white-ish, bottom-baseline so it sits just above the line)
+            ctx.fillStyle = '#c0c0d8';
+            ctx.textAlign = m === 0 ? 'left' : 'center';
+            ctx.fillText(Math.round(m) + 'm', x + (m === 0 ? 2 : 0), axisY - 2);
+        }
+        // Axis line itself
+        ctx.strokeStyle = C.muted;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(pad.left, axisY);
+        ctx.lineTo(w - pad.right, axisY);
+        ctx.stroke();
+
         this._attachZoom(canvas);
     },
 
