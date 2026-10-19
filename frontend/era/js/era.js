@@ -1065,6 +1065,34 @@ const Era = {
               ${flags.length ? `<div style="margin-top:8px;color:#555577;font-size:10px;line-height:1.6">
                 <span style="color:#888">Winning config: </span>${flags.map(f=>`<code style="background:#1a1a2e;padding:1px 5px;border-radius:3px;color:#c0d8ff">${f}</code>`).join(' ')}
               </div>` : ''}
+              ${(() => {
+                const model   = session.model_path || session.model_name || '';
+                const tp      = session.tp || 1;
+                const dtype   = (session.precision || 'bfloat16').replace('bf16','bfloat16').replace('fp16','float16');
+                const envPart = flags.filter(f=>f.includes('=')).map(f=>`  -e ${f} \\`).join('\n');
+                const argPart = flags.filter(f=>!f.includes('=')).join(' \\\n  ');
+                const cmd = [
+                  `docker run --rm -d \\`,
+                  `  --device=/dev/kfd --device=/dev/dri --group-add video \\`,
+                  `  --network=host --shm-size 64g \\`,
+                  `  -e VLLM_USE_V1=0 -e HIPBLASLT_WORKSPACE_SIZE=131072 \\`,
+                  envPart,
+                  `  -v ~/.cache/huggingface:/root/.cache/huggingface \\`,
+                  `  rocm/vllm-dev:latest \\`,
+                  `  python3 -m vllm.entrypoints.openai.api_server \\`,
+                  `  --model ${model} \\`,
+                  `  --tensor-parallel-size ${tp} \\`,
+                  `  --dtype ${dtype} \\`,
+                  argPart ? `  ${argPart}` : null,
+                ].filter(Boolean).join('\n');
+                return `<div style="margin-top:10px;border-top:1px solid #2a2a44;padding-top:8px">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                    <span style="color:#555577;font-size:10px;letter-spacing:0.08em">DEPLOY COMMAND</span>
+                    <span id="era-cmd-copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('era-cmd-block').textContent).then(()=>{this.textContent='✓ COPIED';setTimeout(()=>this.textContent='COPY',1500)})" style="color:#00c896;font-size:9px;cursor:pointer;letter-spacing:0.06em;padding:2px 6px;border:1px solid #00c89640;border-radius:3px">COPY</span>
+                  </div>
+                  <pre id="era-cmd-block" style="margin:0;padding:8px 10px;background:#0a0a14;border:1px solid #1f1f38;border-radius:4px;font-size:10px;color:#a0c0ff;white-space:pre-wrap;word-break:break-all;line-height:1.6;overflow-x:auto">${cmd}</pre>
+                </div>`;
+              })()}
             `;
         } catch (_) {}
     },
