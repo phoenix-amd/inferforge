@@ -2570,7 +2570,7 @@ const Era = {
         btn.textContent = '…';
         btn.disabled = true;
         try {
-            await API.delete('/conversations/' + cid);
+            await API.del('/conversations/' + cid);
             const row = document.querySelector(`[data-conv-id="${cid}"]`);
             if (row) row.remove();
             const list = document.getElementById('history-list');
