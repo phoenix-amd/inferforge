@@ -243,7 +243,22 @@
     gap: var(--era-grid-gap);
     overflow: hidden;
     background: var(--era-bg-deep);
+    position: relative;
 }
+
+/* Resize drag handles — sit over the grid gaps */
+.era-resize-handle {
+    position: absolute;
+    z-index: 100;
+    background: transparent;
+    transition: background 0.15s;
+}
+.era-resize-handle:hover,
+.era-resize-handle.dragging {
+    background: rgba(100, 160, 255, 0.35);
+}
+.era-resize-handle.col { cursor: col-resize; top: 0; bottom: 0; width: 6px; transform: translateX(-3px); }
+.era-resize-handle.row { cursor: row-resize; left: 0; right: 0; height: 6px; transform: translateY(-3px); }
 
 
 /* ==================================
@@ -348,6 +363,11 @@
     background: rgba(255, 255, 255, 0.12);
     color: var(--text);
     border-color: var(--era-border-active);
+}
+.era-collapse-btn {
+    font-size: 10px;
+    width: 24px;
+    height: 24px;
 }
 
 .era-panel-select {

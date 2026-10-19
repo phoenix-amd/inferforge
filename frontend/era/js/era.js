@@ -79,6 +79,82 @@ const Era = {
         }
 
         document.getElementById('chat-input')?.focus();
+
+        // Install resizable grid handles
+        this._initGridResize();
+    },
+
+    _initGridResize() {
+        const grid = document.querySelector('.era-grid');
+        if (!grid) return;
+
+        const getCols = () => getComputedStyle(grid).gridTemplateColumns.split(' ').map(parseFloat);
+        const getRows = () => getComputedStyle(grid).gridTemplateRows.split(' ').map(parseFloat);
+
+        const makeHandle = (cls, getPos, onDrag) => {
+            const h = document.createElement('div');
+            h.className = `era-resize-handle ${cls}`;
+            const position = () => {
+                const rect = grid.getBoundingClientRect();
+                if (cls === 'col') h.style.left = (getPos() * rect.width) + 'px';
+                else               h.style.top  = (getPos() * rect.height) + 'px';
+            };
+            h.addEventListener('mousedown', e => {
+                e.preventDefault();
+                h.classList.add('dragging');
+                const startX = e.clientX, startY = e.clientY;
+                const sc = getCols(), sr = getRows();
+                const onMove = e => { onDrag(e.clientX - startX, e.clientY - startY, sc, sr); position(); };
+                const onUp  = () => {
+                    h.classList.remove('dragging');
+                    document.removeEventListener('mousemove', onMove);
+                    document.removeEventListener('mouseup', onUp);
+                    localStorage.setItem('era_grid_cols', JSON.stringify(getCols()));
+                    localStorage.setItem('era_grid_rows', JSON.stringify(getRows()));
+                };
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onUp);
+            });
+            grid.appendChild(h);
+            requestAnimationFrame(position);
+            window.addEventListener('resize', position);
+        };
+
+        // Vertical handle: between col1 and col2
+        makeHandle('col',
+            () => { const c = getCols(), t = c[0]+c[1]+c[2]; return c[0]/t; },
+            (dx, _dy, sc) => {
+                const min = 120, total = sc[0]+sc[1]+sc[2];
+                const c0 = Math.max(min, Math.min(sc[0]+dx, total-sc[2]-min-min));
+                grid.style.gridTemplateColumns = `${c0}px ${total-c0-sc[2]}px ${sc[2]}px`;
+            }
+        );
+        // Vertical handle: between col2 and chat
+        makeHandle('col',
+            () => { const c = getCols(), t = c[0]+c[1]+c[2]; return (c[0]+c[1])/t; },
+            (dx, _dy, sc) => {
+                const min = 80, total = sc[0]+sc[1]+sc[2];
+                const c2 = Math.max(min, Math.min(sc[2]-dx, total-sc[0]-min-min));
+                grid.style.gridTemplateColumns = `${sc[0]}px ${total-sc[0]-c2}px ${c2}px`;
+            }
+        );
+        // Horizontal handle: between row1 and row2
+        makeHandle('row',
+            () => { const r = getRows(); return r[0]/(r[0]+r[1]); },
+            (_dx, dy, _sc, sr) => {
+                const min = 80;
+                const r0 = Math.max(min, sr[0]+dy), r1 = Math.max(min, sr[1]-dy);
+                grid.style.gridTemplateRows = `${r0}px ${r1}px`;
+            }
+        );
+
+        // Restore saved layout
+        try {
+            const sc = JSON.parse(localStorage.getItem('era_grid_cols') || 'null');
+            const sr = JSON.parse(localStorage.getItem('era_grid_rows') || 'null');
+            if (sc && sc.length === 3) grid.style.gridTemplateColumns = sc.map(v=>v+'px').join(' ');
+            if (sr && sr.length === 2) grid.style.gridTemplateRows    = sr.map(v=>v+'px').join(' ');
+        } catch (_) {}
     },
 
 
@@ -867,10 +943,20 @@ const Era = {
             }
 
             if (data.sessions.length > 0) {
-                sel.value = data.sessions[0].id;
-                // Delay render so panel has time to layout and report correct clientWidth
-                requestAnimationFrame(() => this.loadTimeline());
+                const previousId = sel.value;
+                const stillExists = previousId && data.sessions.some(s => s.id === previousId);
+                if (!stillExists) {
+                    // No valid selection — default to most recent session
+                    sel.value = data.sessions[0].id;
+                    requestAnimationFrame(() => this.loadTimeline());
+                } else {
+                    // Keep user's current selection — just reload the timeline quietly
+                    // (don't re-select; user may have manually picked an older session)
+                    requestAnimationFrame(() => this.loadTimeline());
+                }
             }
+
+            // Sync custom dropdown button label to current selection
 
             // Show/hide the "HYPERLOOM RUNNING" banner based on DB session status.
             // This survives page reloads — Hyperloom runs on cluster independently of the
@@ -886,7 +972,155 @@ const Era = {
                     banner.style.display = 'none';
                 }
             }
+
+            // Drive the session indicator in the header from cluster state.
+            // This removes the "NO ACTIVE SESSION" confusion — the indicator now reflects
+            // whether a Hyperloom job is running or has recently run, not local tab state.
+            const si = document.getElementById('era-session-indicator');
+            const siLabel = document.getElementById('era-session-label');
+            if (si && siLabel) {
+                if (anyRunning) {
+                    const runSess = data.sessions.find(s => s.status === 'running');
+                    si.classList.add('active');
+                    siLabel.textContent = 'OPTIMIZING — ' + (runSess?.model_name?.split('/').pop() || 'cluster job');
+                } else {
+                    // Nothing running — show idle state regardless of past sessions
+                    si.classList.remove('active');
+                    siLabel.textContent = 'IDLE — NO ACTIVE JOB';
+                }
+            }
         } catch (_) {}
+    },
+
+    /** Open the session manager modal — shows all sessions with checkboxes for bulk delete */
+    async openSessionManager() {
+        const modal = document.getElementById('session-manager-modal');
+        if (!modal) return;
+        const list = document.getElementById('sm-list');
+        const count = document.getElementById('sm-count');
+        const delBtn = document.getElementById('sm-delete-btn');
+        const selAll = document.getElementById('sm-select-all');
+        if (!list) return;
+
+        list.innerHTML = '<div style="padding:12px 16px;font-size:10px;color:#555577;font-family:var(--mono)">Loading…</div>';
+        modal.classList.add('open');
+
+        const data = await API.get('/hyperloom/sessions').catch(() => null);
+        const sessions = data?.sessions || [];
+        list.innerHTML = '';
+
+        const updateCount = () => {
+            const checked = list.querySelectorAll('input[type=checkbox]:checked').length;
+            if (count) count.textContent = checked ? `${checked} selected` : `${sessions.length} sessions`;
+            if (delBtn) delBtn.disabled = !checked;
+            if (selAll) selAll.indeterminate = checked > 0 && checked < sessions.length;
+        };
+
+        const statusColor = { completed:'#00c896', running:'#4488ff', stopped:'#555577', cancelled:'#ff6677' };
+
+        sessions.forEach(s => {
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:7px 16px;border-bottom:1px solid #12121e;transition:background 0.1s';
+            row.onmouseover = () => row.style.background = '#0e0e1e';
+            row.onmouseout  = () => row.style.background = '';
+
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.value = s.id;
+            cb.style.cssText = 'flex-shrink:0;accent-color:#ff4466;cursor:pointer';
+            cb.onchange = updateCount;
+
+            const info = document.createElement('div');
+            info.style.cssText = 'flex:1;min-width:0';
+            const model = (s.model_name || 'Session').split('/').pop();
+            const gain = s.outcome_gain_pct != null ? ` · <span style="color:#00c896">+${s.outcome_gain_pct.toFixed(1)}%</span>` : '';
+            const date = s.started_at ? new Date(s.started_at).toLocaleString() : '';
+            info.innerHTML = `<div style="font-size:10px;font-family:var(--mono);color:#c0c0d8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${model}${gain}</div>
+                              <div style="font-size:9px;color:#555577;font-family:var(--mono);margin-top:1px">${date} · <span style="color:${statusColor[s.status]||'#666'}">${s.status}</span></div>`;
+
+            const delOne = document.createElement('button');
+            delOne.textContent = '✕';
+            delOne.title = 'Delete this session';
+            delOne.style.cssText = 'flex-shrink:0;padding:2px 8px;font-size:11px;font-weight:700;background:none;border:1px solid #ff334d40;border-radius:3px;color:#ff5566;cursor:pointer';
+            delOne.onmouseover = () => delOne.style.background = 'rgba(255,50,80,0.2)';
+            delOne.onmouseout  = () => delOne.style.background = 'none';
+            delOne.onclick = async () => {
+                if (!confirm(`Delete session?\n${model}\n\nCannot be undone.`)) return;
+                await API.del('/hyperloom/sessions/' + s.id).catch(() => {});
+                row.remove();
+                await this.loadSessions();
+                this._showToast('Session deleted', 2000);
+                updateCount();
+            };
+
+            row.append(cb, info, delOne);
+            list.appendChild(row);
+        });
+
+        if (!sessions.length) {
+            list.innerHTML = '<div style="padding:16px;font-size:10px;color:#555577;font-family:var(--mono);text-align:center">No sessions found</div>';
+        }
+        updateCount();
+    },
+
+    closeSessionManager() {
+        document.getElementById('session-manager-modal')?.classList.remove('open');
+    },
+
+    _smToggleAll(checked) {
+        const list = document.getElementById('sm-list');
+        list?.querySelectorAll('input[type=checkbox]').forEach(cb => cb.checked = checked);
+        const delBtn = document.getElementById('sm-delete-btn');
+        const count = document.getElementById('sm-count');
+        const n = list?.querySelectorAll('input[type=checkbox]').length || 0;
+        if (delBtn) delBtn.disabled = !checked;
+        if (count) count.textContent = checked ? `${n} selected` : `${n} sessions`;
+    },
+
+    async deleteCheckedSessions() {
+        const list = document.getElementById('sm-list');
+        const checked = [...(list?.querySelectorAll('input[type=checkbox]:checked') || [])];
+        if (!checked.length) return;
+        if (!confirm(`Delete ${checked.length} session(s)?\n\nThis cannot be undone.`)) return;
+        let done = 0;
+        for (const cb of checked) {
+            await API.del('/hyperloom/sessions/' + cb.value).catch(() => {});
+            cb.closest('div[style]')?.remove();
+            done++;
+        }
+        this._showToast(`${done} session(s) deleted`, 2500);
+        await this.loadSessions();
+        const delBtn = document.getElementById('sm-delete-btn');
+        if (delBtn) delBtn.disabled = true;
+        const count = document.getElementById('sm-count');
+        const remaining = list?.querySelectorAll('input[type=checkbox]').length || 0;
+        if (count) count.textContent = `${remaining} sessions`;
+    },
+
+    async deleteSelectedSession() {
+        const sel = document.getElementById('timeline-session-select');
+        const sessionId = sel?.value;
+        if (!sessionId) {
+            this._showToast('Select a session first', 2000);
+            return;
+        }
+        const label = sel.options[sel.selectedIndex]?.textContent || sessionId;
+        if (!confirm(`Delete session?\n\n${label}\n\nThis cannot be undone.`)) return;
+        try {
+            await API.del('/hyperloom/sessions/' + sessionId);
+            this._showToast('Session deleted', 2000);
+            // Remove from dropdown and clear timeline
+            sel.remove(sel.selectedIndex);
+            sel.value = '';
+            // Clear comparison panel if it was for this session
+            const cmp = document.getElementById('era-session-comparison');
+            if (cmp) cmp.remove();
+            if (this._lastComparisonSession?.id === sessionId) this._lastComparisonSession = null;
+            // Reload sessions to refresh list and banner
+            await this.loadSessions();
+        } catch (e) {
+            this._showToast('Delete failed: ' + (e.message || e), 3000);
+        }
     },
 
     _timelineToEvents(data) {
@@ -947,9 +1181,21 @@ const Era = {
         });
     },
 
+    _lastLoadedSessionId: null,   // track which session is currently displayed
+
     async loadTimeline() {
         const sel = document.getElementById('timeline-session-select');
         const sessionId = sel ? sel.value : '';
+
+        // Clear the comparison panel only when switching to a different session.
+        // On same-session refresh (30s timer) keep the panel — avoids flicker.
+        if (sessionId !== this._lastLoadedSessionId) {
+            const cmp = document.getElementById('era-session-comparison');
+            if (cmp) cmp.remove();
+            this._lastComparisonSession = null;
+        }
+        this._lastLoadedSessionId = sessionId;
+
         if (!sessionId) return;
 
         try {
@@ -1001,10 +1247,13 @@ const Era = {
      *  2. Positive gain, no outcome_json → gain badge only (detail data not stored)
      *  3. Zero/negative gain or incomplete phases → INTERRUPTED badge with reason
      */
+    _lastComparisonSession: null,  // cached for modal expand
+
     async _updateComparisonPanel(sessionId, timelineData) {
         try {
             const session = await API.get('/hyperloom/sessions/' + sessionId);
             if (!session) return;
+            this._lastComparisonSession = session;  // cache for modal
 
             const body = document.getElementById('timeline-body');
             if (!body) return;
@@ -1030,7 +1279,17 @@ const Era = {
             const lastCompleted = completedPhases.length ? completedPhases[completedPhases.length - 1] : null;
             const isInterrupted = !allPhasesComplete || !gain || gain <= 0;
 
-            cmp.style.cssText = 'flex-shrink:0;border-top:2px solid #2a2a44;padding:10px 14px 12px;font-family:var(--mono);font-size:12px;color:#c0c0d8;';
+            cmp.style.cssText = 'flex-shrink:0;border-top:2px solid #2a2a44;font-family:var(--mono);font-size:12px;color:#c0c0d8;';
+
+            // Collapsible header helper — includes expand ⤢ button
+            const _collapseHeader = (title, badge, badgeBg, badgeColor) => `
+              <div onclick="(function(e){if(e.target.classList.contains('cmp-expand-btn'))return;var b=e.target.closest('[data-cmp-header]').nextElementSibling;var a=e.target.closest('[data-cmp-header]').querySelector('.cmp-arrow');if(b.style.display==='none'){b.style.display='';a.innerHTML='&#9660;'}else{b.style.display='none';a.innerHTML='&#9654;'}})(event)"
+                   data-cmp-header style="display:flex;align-items:center;gap:10px;padding:10px 14px 8px;cursor:pointer;user-select:none">
+                <span style="color:${badgeColor};font-weight:700;font-size:13px">${title}</span>
+                <span style="background:${badgeBg};color:${badgeColor === '#ff9955' ? '#fff' : '#000'};font-weight:700;font-size:10px;padding:1px 8px;border-radius:10px">${badge}</span>
+                <span class="cmp-arrow" style="margin-left:auto;color:#555577;font-size:11px">&#9660;</span>
+                <button class="cmp-expand-btn era-panel-btn era-collapse-btn" onclick="event.stopPropagation();Era.openComparisonModal()" title="Expand" style="margin-left:4px">&#10138;</button>
+              </div>`;
 
             // ── INTERRUPTED PANEL ────────────────────────────────────────────────
             if (isInterrupted) {
@@ -1038,10 +1297,8 @@ const Era = {
                 const missedPhases = expectedPhases.filter(p => !completedPhases.includes(p));
                 cmp.style.background = 'linear-gradient(180deg,rgba(255,120,0,0.04) 0%,transparent 100%)';
                 cmp.innerHTML = `
-                  <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-                    <span style="color:#ff9955;font-weight:700;font-size:13px">⚠ SESSION INTERRUPTED</span>
-                    <span style="background:#ff6622;color:#fff;font-weight:700;font-size:10px;padding:1px 8px;border-radius:10px">INCOMPLETE</span>
-                  </div>
+                  ${_collapseHeader('⚠ SESSION INTERRUPTED', 'INCOMPLETE', '#ff6622', '#ff9955')}
+                  <div style="padding:0 14px 12px">
                   <div style="font-size:11px;color:#888;line-height:1.7;margin-bottom:6px">
                     ${gain != null ? `<div>Best result: <span style="color:${gain>0?'#00c896':'#ff6677'};font-weight:700">${gain>0?'+':''}${gain.toFixed(2)}%</span> throughput vs baseline</div>` : ''}
                     <div>Completed: ${completedPhases.length ? completedPhases.map(p=>`<span style="color:#aaaacc">${p}</span>`).join(' → ') : '<span style="color:#555577">none</span>'}</div>
@@ -1052,6 +1309,7 @@ const Era = {
                     KERNEL_AGENT and SWEEP phases are where the largest gains come from.<br>
                     Re-run with <code style="background:#1a1a2e;padding:1px 4px;border-radius:2px;color:#a0c0ff">--max-hours 4.0</code> to reach all phases.
                   </div>
+                  </div>
                 `;
                 return;
             }
@@ -1060,13 +1318,12 @@ const Era = {
             if (!hasDetail) {
                 cmp.style.background = 'linear-gradient(180deg,rgba(0,200,150,0.04) 0%,transparent 100%)';
                 cmp.innerHTML = `
-                  <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-                    <span style="color:#00c896;font-weight:700;font-size:13px">✅ OPTIMIZATION COMPLETE</span>
-                    <span style="background:#00c896;color:#000;font-weight:700;font-size:11px;padding:1px 8px;border-radius:10px">+${gain.toFixed(2)}% throughput</span>
-                  </div>
+                  ${_collapseHeader('OPTIMIZATION COMPLETE', '+' + gain.toFixed(2) + '% throughput', '#00c896', '#00c896')}
+                  <div style="padding:0 14px 12px">
                   <div style="font-size:11px;color:#666688">
                     Per-metric breakdown not available — outcome was recorded as a summary only.<br>
                     Import the full Hyperloom breakdown file to see before/after detail.
+                  </div>
                   </div>
                 `;
                 return;
@@ -1084,10 +1341,8 @@ const Era = {
 
             cmp.style.background = 'linear-gradient(180deg,rgba(0,200,150,0.04) 0%,transparent 100%)';
             cmp.innerHTML = `
-              <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-                <span style="color:#00c896;font-weight:700;font-size:13px">✅ OPTIMIZATION RESULTS</span>
-                <span style="background:#00c896;color:#000;font-weight:700;font-size:11px;padding:1px 8px;border-radius:10px">+${gain.toFixed(2)}% throughput</span>
-              </div>
+              ${_collapseHeader('OPTIMIZATION RESULTS', '+' + gain.toFixed(2) + '% throughput', '#00c896', '#00c896')}
+              <div style="padding:0 14px 12px">
               <table style="width:100%;border-collapse:collapse;font-size:11px">
                 <thead>
                   <tr>
@@ -1161,8 +1416,82 @@ const Era = {
                   <pre id="era-cmd-block" style="margin:0;padding:8px 10px;background:#0a0a14;border:1px solid #1f1f38;border-radius:4px;font-size:10px;color:#a0c0ff;white-space:pre-wrap;word-break:break-all;line-height:1.6;overflow-x:auto">${cmd}</pre>
                 </div>`;
               })()}
+              </div>
             `;
         } catch (_) {}
+    },
+
+    openComparisonModal() {
+        const modal = document.getElementById('comparison-modal');
+        if (!modal) return;
+        const s = this._lastComparisonSession;
+        if (!s) return;
+
+        const oj = s.outcome_json || {};
+        const bl = oj.baseline || {};
+        const opt = oj.optimized || {};
+        const gain = s.outcome_gain_pct;
+        const flags = oj.winning_flags || [];
+        const fmt = (v, u='') => v != null ? v.toLocaleString(undefined,{maximumFractionDigits:1}) + u : '—';
+        const delta = (b, o, inv=false) => {
+            if (b == null || o == null) return '';
+            const p = (o - b) / b * 100;
+            const up = inv ? p < 0 : p > 0;
+            return `<span style="color:${up?'#00c896':'#ff6677'};font-size:13px">${p>0?'+':''}${p.toFixed(1)}%</span>`;
+        };
+
+        const badge = document.getElementById('cmp-modal-badge');
+        if (badge) badge.textContent = (gain > 0 ? '+' : '') + gain.toFixed(2) + '% throughput';
+
+        const body = document.getElementById('cmp-modal-body');
+        if (!body) return;
+        body.innerHTML = `
+          <table style="width:100%;border-collapse:collapse;font-size:15px;margin-bottom:20px">
+            <thead>
+              <tr>
+                <th style="text-align:left;color:#555577;padding:4px 10px 8px 0;border-bottom:1px solid #2a2a44;width:28%">Metric</th>
+                <th style="text-align:right;color:#888;padding:4px 12px 8px;border-bottom:1px solid #2a2a44">Baseline</th>
+                <th style="text-align:right;color:#00c896;padding:4px 12px 8px;border-bottom:1px solid #2a2a44">Optimized</th>
+                <th style="text-align:right;color:#555577;padding:4px 0 8px 12px;border-bottom:1px solid #2a2a44">Delta</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td style="padding:7px 10px 7px 0;color:#aaaacc">Throughput</td>
+                  <td style="text-align:right;padding:7px 12px">${fmt(bl.throughput_tps)} tok/s</td>
+                  <td style="text-align:right;padding:7px 12px;color:#00c896;font-weight:700">${fmt(opt.throughput_tps)} tok/s</td>
+                  <td style="text-align:right;padding:7px 0 7px 12px">${delta(bl.throughput_tps,opt.throughput_tps)}</td></tr>
+              <tr style="background:rgba(255,255,255,0.02)">
+                  <td style="padding:7px 10px 7px 0;color:#aaaacc">TTFT p50</td>
+                  <td style="text-align:right;padding:7px 12px">${fmt(bl.ttft_p50_ms)} ms</td>
+                  <td style="text-align:right;padding:7px 12px;color:#00c896;font-weight:700">${fmt(opt.ttft_p50_ms)} ms</td>
+                  <td style="text-align:right;padding:7px 0 7px 12px">${delta(bl.ttft_p50_ms,opt.ttft_p50_ms,true)}</td></tr>
+              <tr><td style="padding:7px 10px 7px 0;color:#aaaacc">TTFT p99</td>
+                  <td style="text-align:right;padding:7px 12px">${fmt(bl.ttft_p99_ms)} ms</td>
+                  <td style="text-align:right;padding:7px 12px;color:#00c896;font-weight:700">${fmt(opt.ttft_p99_ms)} ms</td>
+                  <td style="text-align:right;padding:7px 0 7px 12px">${delta(bl.ttft_p99_ms,opt.ttft_p99_ms,true)}</td></tr>
+              <tr style="background:rgba(255,255,255,0.02)">
+                  <td style="padding:7px 10px 7px 0;color:#aaaacc">TPOT p50</td>
+                  <td style="text-align:right;padding:7px 12px">${fmt(bl.tpot_p50_ms)} ms</td>
+                  <td style="text-align:right;padding:7px 12px;color:#c0c0d8">${fmt(opt.tpot_p50_ms)} ms</td>
+                  <td style="text-align:right;padding:7px 0 7px 12px">${delta(bl.tpot_p50_ms,opt.tpot_p50_ms,true)}</td></tr>
+              <tr><td style="padding:7px 10px 7px 0;color:#aaaacc">E2E p50</td>
+                  <td style="text-align:right;padding:7px 12px">${fmt(bl.e2e_p50_ms)} ms</td>
+                  <td style="text-align:right;padding:7px 12px;color:#c0c0d8">${fmt(opt.e2e_p50_ms)} ms</td>
+                  <td style="text-align:right;padding:7px 0 7px 12px">${delta(bl.e2e_p50_ms,opt.e2e_p50_ms,true)}</td></tr>
+            </tbody>
+          </table>
+          ${flags.length ? `<div style="margin-bottom:16px">
+            <div style="color:#555577;font-size:11px;letter-spacing:0.08em;margin-bottom:8px">WINNING CONFIG</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">${flags.map(f=>`<code style="background:#1a1a2e;padding:4px 10px;border-radius:4px;color:#c0d8ff;font-size:13px">${f}</code>`).join('')}</div>
+          </div>` : ''}
+          <div style="font-size:11px;color:#555577">Model: ${s.model_name || '—'} · Framework: ${s.framework_name || 'vllm'} · TP${s.tp||8} · ${s.gpu_type||'MI300X'}</div>
+        `;
+        modal.classList.add('open');
+    },
+
+    closeComparisonModal(e) {
+        if (e && e.target !== document.getElementById('comparison-modal')) return;
+        document.getElementById('comparison-modal')?.classList.remove('open');
     },
 
 
@@ -1245,6 +1574,7 @@ const Era = {
     _chartData: {},          // Store chart data for modal re-render
     _benchmarkFilter: 'session',  // 'session' | 'all'
     _ignoreDeployBefore: null,    // ignore old deployments until a new one appears
+    _deployTriggered: false,      // true only after user clicks Deploy Best
 
     _renderBenchmarkCharts(runs) {
         if (!runs.length) return;
@@ -1341,6 +1671,19 @@ const Era = {
         if (modal) modal.classList.remove('open');
     },
 
+    togglePanel(bodyId) {
+        const body = document.getElementById(bodyId);
+        if (!body) return;
+        const btn = body.parentElement?.querySelector('.era-collapse-btn');
+        if (body.style.display === 'none') {
+            body.style.display = '';
+            if (btn) btn.innerHTML = '&#9660;';
+        } else {
+            body.style.display = 'none';
+            if (btn) btn.innerHTML = '&#9654;';
+        }
+    },
+
     openTimelineModal() {
         const modal = document.getElementById('timeline-modal');
         if (!modal) return;
@@ -1415,10 +1758,16 @@ const Era = {
         try {
             const data = await API.get('/deployments');
             if (!data || !data.deployments || !data.deployments.length) {
-                if (!this._sessionActive) this._showEmptyDeployments();
+                this._showEmptyDeployments();
                 return;
             }
             const latest = data.deployments[0];
+
+            // Only show deployments after user explicitly clicks Deploy Best.
+            // Until then, keep the pipeline empty so stale old deployments don't appear.
+            if (!this._deployTriggered) {
+                return;
+            }
 
             // If waiting for a NEW deployment (Deploy Best was just clicked),
             // ignore old deployments until a genuinely new one appears
@@ -1493,6 +1842,7 @@ const Era = {
 
     deployBest() {
         if (!State.apiReady) return;
+        this._deployTriggered = true;
         this._sendChatCommand('Deploy the best optimized configuration from the last benchmark run. Use canary deployment.');
     },
 
@@ -1657,6 +2007,7 @@ const Era = {
 
         // Reset pipeline to empty and ignore old deployments
         this._showEmptyDeployments();
+        this._deployTriggered = true;
         try {
             const data = await API.get('/deployments');
             const latest = data?.deployments?.[0];
@@ -1720,19 +2071,40 @@ const Era = {
         const runtypeSel = document.getElementById('sel-runtype');
         if (runtypeSel) runtypeSel.value = 'optimize';
         this._markSessionActive();
-        // Show "HYPERLOOM RUNNING" banner — job continues on cluster after UI completes
+        // Show banner
         const banner = document.getElementById('era-hyperloom-banner');
         if (banner) { banner.style.display = 'flex'; }
         const bannerText = document.getElementById('era-hyperloom-banner-text');
+
+        // ── PREFLIGHT: check nodes, kill stale jobs, pick best node ──
+        let targetHost = null;
+        if (bannerText) bannerText.textContent = 'PREFLIGHT CHECK — scanning cluster nodes...';
+        try {
+            const pf = await API.post('/fleet/preflight', { clean_stale: true });
+            if (pf && pf.best_node) {
+                targetHost = pf.best_node.ip;
+                const killed = (pf.nodes || []).reduce((s, n) => s + (n.stale_containers_killed || 0), 0);
+                const msg = `Preflight OK: ${pf.nodes.length} node(s)` +
+                    (killed > 0 ? ` · ${killed} stale killed` : '') +
+                    ` · best: ${pf.best_node.hostname || pf.best_node.ip}`;
+                this._showToast(msg, 5000);
+            }
+        } catch (e) {
+            console.warn('Preflight failed, using config head:', e);
+            this._showToast('Preflight skipped — using configured head node', 3000);
+        }
+        const cfg = JSON.parse(localStorage.getItem('inferforge_era_config') || '{}');
+        if (!targetHost) targetHost = cfg.head || '10.194.30.169';
+
         if (bannerText) bannerText.textContent = 'HYPERLOOM RUNNING ON CLUSTER — DO NOT CLOSE';
+
         // Create a session record immediately so the timeline shows something
         try {
-            const cfg = JSON.parse(localStorage.getItem('inferforge_era_config') || '{}');
             const modelId = cfg.model === 'custom' ? (cfg.modelCustom || '') : (cfg.model || 'meta-llama/Llama-3.1-70B-Instruct');
             const sid = await API.post('/hyperloom/sessions', {
                 model_name: modelId,
                 framework_name: 'vllm',
-                host: cfg.head || '10.194.30.169',
+                host: targetHost,
                 gpu_type: 'MI300X',
                 tp: 8,
                 status: 'running',
@@ -1757,8 +2129,8 @@ const Era = {
         this.quickCommand(
             '[RUN TYPE: OPTIMIZE — Hyperloom kernel optimization via Docker on cluster. Use SSH key id_ed25519_moba.]\n' +
             'Execute each step ONCE. Do NOT try bare-metal Python install — Hyperloom requires ROCm torch which is ONLY in Docker.\n\n' +
-            'STEP 1 — Verify cluster access:\n' +
-            'ssh id_ed25519_moba rghaffar@<head-node>: echo OK\n\n' +
+            'STEP 1 — Verify cluster access (preflight selected ' + targetHost + '):\n' +
+            'ssh id_ed25519_moba rghaffar@' + targetHost + ': echo OK\n\n' +
             'STEP 2 — Confirm Hyperloom repo is cloned (already done: ~/hyperloom):\n' +
             'ssh: ls ~/hyperloom/pyproject.toml && echo EXISTS\n\n' +
             'STEP 3 — Create POST /api/hyperloom/sessions with model_name, host, gpu_type=MI300X, tp=8, status=running. Save session ID.\n\n' +
@@ -1769,7 +2141,7 @@ const Era = {
             '  ssh: curl -sk --max-time 5 -o /dev/null -w "%{http_code}" https://127.0.0.1:18443/ 2>&1\n' +
             '  If tunnel active (HTTP != 000): Set LLM_BASE=https://127.0.0.1:18443\n' +
             '  If tunnel NOT active: Start tunnel from LOCAL machine:\n' +
-            '    ssh -i ~/.ssh/id_ed25519_moba -R 18443:llm-api.amd.com:443 -N -f rghaffar@10.194.30.169\n' +
+            '    ssh -i ~/.ssh/id_ed25519_moba -R 18443:llm-api.amd.com:443 -N -f rghaffar@' + targetHost + '\n' +
             '    Then verify: ssh: curl -sk --max-time 5 https://127.0.0.1:18443/ and set LLM_BASE=https://127.0.0.1:18443\n\n' +
             'STEP 5 — Create kernel-agent.env.sh with the resolved LLM_BASE:\n' +
             'ssh: mkdir -p ~/hl-data/runtime && cat > ~/hl-data/runtime/kernel-agent.env.sh << EOF\n' +
@@ -1784,7 +2156,14 @@ const Era = {
             'EOF\n' +
             'chmod 600 ~/hl-data/runtime/kernel-agent.env.sh\n\n' +
             'Also update ~/hyperloom/.env with the same LLM_BASE URLs (OPENAI_BASE_URL + ANTHROPIC_BASE_URL).\n\n' +
+            'MODEL DISCOVERY (REQUIRED before Step 6 — do NOT skip):\n' +
+            'Run exactly 3 SSH checks to find the model. STOP and present Options 1/2/3 to the user.\n' +
+            'Check 1: ssh: ls ~/.cache/huggingface/hub/ | grep -i llama\n' +
+            'Check 2: ssh: ls /mnt/GT_NFS/HF_HOME/hub/ | grep -i llama\n' +
+            'Check 3: ssh: ls /mnt/GT_WEKA_NFS/new_gt/models/meta-llama/ 2>/dev/null\n' +
+            'Present the options box and WAIT for user reply before launching Docker.\n\n' +
             'STEP 6 — Launch Hyperloom inside Docker (rocm/vllm-dev:nightly):\n' +
+            '(Only after user confirms model from discovery above)\n' +
             'docker rm -f hyperloom-optimize 2>/dev/null; docker run -d --name hyperloom-optimize \\\n' +
             '  --device=/dev/kfd --device=/dev/dri --group-add video \\\n' +
             '  --network=host --shm-size 64g \\\n' +
@@ -1800,7 +2179,7 @@ const Era = {
             '    bash /hyperloom/src/hyperloom/inference_optimizer/assets/install.sh || true && \\\n' +
             '    source /hl-data/runtime/kernel-agent.env.sh && \\\n' +
             '    hyperloom optimize \\\n' +
-            '      --model /mnt/GT_WEKA_NFS/new_gt/models/meta-llama/Llama-2-70b-chat-hf \\\n' +
+            '      --model <MODEL_PATH_FROM_USER_SELECTION> \\\n' +
             '      --framework vllm \\\n' +
             '      --gpu-type mi300x \\\n' +
             '      --tp 8 \\\n' +
@@ -1813,7 +2192,8 @@ const Era = {
             '- Use --gpu-type mi300x (NOT --gpu)\n' +
             '- Use Docker, NOT bare metal pip install\n' +
             '- Always include --critic-mock (critic API also uses same gateway)\n' +
-            '- If using tunnel proxy, add NODE_TLS_REJECT_UNAUTHORIZED=0 to Docker env for self-signed cert'
+            '- If using tunnel proxy, add NODE_TLS_REJECT_UNAUTHORIZED=0 to Docker env for self-signed cert\n' +
+            '- NEVER skip model discovery. NEVER auto-proceed to Docker without user replying 1/2/3.'
         );
     },
 
@@ -2426,6 +2806,7 @@ const Era = {
         this._showEmptyTelemetry();
         this._showEmptyBenchmarks();
         this._showEmptyDeployments();
+        this._deployTriggered = false;
 
         // Reset timeline
         const canvas = document.getElementById('canvas-gantt');
@@ -2433,6 +2814,7 @@ const Era = {
         this._setText('timeline-phase', '--');
         const sel = document.getElementById('timeline-session-select');
         if (sel) sel.innerHTML = '<option value="">Select Session</option>';
+        this._syncSessionDropdown();
 
         // Reset session indicator
         const si = document.getElementById('era-session-indicator');
@@ -2446,7 +2828,6 @@ const Era = {
     loadBenchmarkHistory() {
         this._markSessionActive();
         this.loadBenchmarks();
-        this.loadDeployments();
         this.loadSessions();
         this._showToast('HISTORY LOADED');
     },

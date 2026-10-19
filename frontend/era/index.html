@@ -130,12 +130,21 @@
       <div class="era-panel-body" id="timeline-body">
         <canvas id="canvas-gantt" style="cursor:pointer" onclick="Era.openTimelineModal()" title="Click to expand"></canvas>
         <div class="era-phase-legend" id="phase-legend">
+
           <span class="era-legend-item"><span class="era-legend-swatch" style="background:#4488ff"></span>PRELUDE</span>
           <span class="era-legend-item"><span class="era-legend-swatch" style="background:#ffaa00"></span>ENABLEMENT</span>
           <span class="era-legend-item"><span class="era-legend-swatch" style="background:#00c896"></span>FRAMEWORK</span>
           <span class="era-legend-item"><span class="era-legend-swatch" style="background:#8866ff"></span>KERNEL</span>
           <span class="era-legend-item"><span class="era-legend-swatch" style="background:#00d4ff"></span>SWEEP</span>
           <span class="era-legend-item"><span class="era-legend-swatch" style="background:#666680"></span>CLOSE</span>
+          <span style="margin-left:auto;flex-shrink:0">
+            <button onclick="Era.openSessionManager()"
+              style="font-size:9px;font-family:var(--mono);letter-spacing:0.06em;
+                     padding:2px 8px;background:rgba(255,50,80,0.15);
+                     border:1px solid #ff334d;border-radius:3px;color:#ff5566;cursor:pointer">
+              🗑 MANAGE
+            </button>
+          </span>
         </div>
       </div>
     </section>
@@ -206,6 +215,7 @@
         </div>
         <div class="era-panel-controls">
           <span class="era-panel-badge badge-purple" id="deploy-status">IDLE</span>
+          <button class="era-panel-btn era-collapse-btn" onclick="Era.togglePanel('deployment-body')" title="Collapse/Expand">&#9660;</button>
         </div>
       </div>
       <div class="era-panel-body" id="deployment-body">
@@ -484,6 +494,45 @@
         <span class="era-legend-item"><span class="era-legend-swatch" style="background:#666680;width:22px;height:6px"></span>CLOSE</span>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- Session Manager modal -->
+<div id="session-manager-modal" class="era-telem-modal" onclick="if(event.target===this)Era.closeSessionManager()">
+  <div class="era-telem-modal-content" onclick="event.stopPropagation()" style="max-width:580px;height:auto;max-height:75vh">
+    <div class="era-telem-modal-header">
+      <span class="era-telem-modal-title">MANAGE SESSIONS</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button onclick="Era.deleteCheckedSessions()"
+          style="font-size:10px;font-family:var(--mono);padding:3px 12px;
+                 background:rgba(255,50,80,0.18);border:1px solid #ff334d;border-radius:3px;
+                 color:#ff5566;cursor:pointer" id="sm-delete-btn" disabled>
+          ✕ DELETE SELECTED
+        </button>
+        <button class="era-chart-modal-close" onclick="Era.closeSessionManager()">&times;</button>
+      </div>
+    </div>
+    <div style="padding:6px 16px 4px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #1a1a2e">
+      <label style="font-size:9px;font-family:var(--mono);color:#555577;cursor:pointer;display:flex;align-items:center;gap:6px">
+        <input type="checkbox" id="sm-select-all" onchange="Era._smToggleAll(this.checked)"> SELECT ALL
+      </label>
+      <span style="font-size:9px;font-family:var(--mono);color:#555577" id="sm-count"></span>
+    </div>
+    <div id="sm-list" style="overflow-y:auto;max-height:calc(75vh - 100px)"></div>
+  </div>
+</div>
+
+<!-- Optimization Results expand modal -->
+<div id="comparison-modal" class="era-telem-modal" onclick="Era.closeComparisonModal(event)">
+  <div class="era-telem-modal-content" onclick="event.stopPropagation()" style="max-width:780px;height:auto;max-height:80vh">
+    <div class="era-telem-modal-header">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span class="era-telem-modal-title">OPTIMIZATION RESULTS</span>
+        <span id="cmp-modal-badge" style="background:#00c896;color:#000;font-weight:700;font-size:11px;padding:2px 10px;border-radius:10px"></span>
+      </div>
+      <button class="era-chart-modal-close" onclick="Era.closeComparisonModal()">&times;</button>
+    </div>
+    <div id="cmp-modal-body" style="padding:20px 24px;overflow-y:auto;font-family:var(--mono);font-size:14px;color:#c0c0d8"></div>
   </div>
 </div>
 

@@ -405,3 +405,274 @@ async def api_live_telemetry():
             telemetry.append({**info, **result})
 
     return {"nodes": telemetry}
+
+
+# ---------------------------------------------------------------------------
+#  PREFLIGHT HEALTH CHECK
+# ---------------------------------------------------------------------------
+
+class PreflightRequest(BaseModel):
+    node_ids: list[str] | None = None
+    clean_stale: bool = True
+
+
+async def _ssh_preflight_check(
+    ip: str, user: str, key_path: str | None, clean_stale: bool,
+) -> dict:
+    """SSH to a node and collect health data + optionally kill stale jobs."""
+    key_arg = f"-i {key_path}" if key_path else "-i ~/.ssh/id_ed25519_moba"
+
+    clean_block = (
+        # Kill hyperloom container
+        "docker stop hyperloom-optimize 2>/dev/null; "
+        "docker rm -f hyperloom-optimize 2>/dev/null; "
+        # Kill any vLLM/SGLang/ray containers holding GPU memory
+        "docker ps -q --filter name=vllm --filter name=sglang --filter name=inferforge "
+        "2>/dev/null | xargs -r docker stop 2>/dev/null; "
+        # Kill stray host processes (not in Docker)
+        "pkill -f 'hyperloom optimize' 2>/dev/null; "
+        "pkill -f 'vllm.entrypoints' 2>/dev/null; "
+        # Remove lock files
+        "find /hl-data -name 'optimizer.lock' -delete 2>/dev/null; "
+        # Wait a moment for GPU memory to be released
+        "sleep 2; "
+        "echo CLEANED"
+    ) if clean_stale else "echo SKIPPED"
+
+    remote_cmd = (
+        "echo '---PING---'; echo PONG; "
+        "echo '---RAM---'; free -g 2>/dev/null | awk '/^Mem:/{print $2,$4,$7}'; "
+        # GPU count
+        "echo '---GPU---'; amd-smi list 2>/dev/null | grep -c '^GPU:' || echo 0; "
+        # GPU HBM usage (used/total per GPU in GB)
+        "echo '---HBM---'; amd-smi metric --vram 2>/dev/null | "
+        "awk '/VRAM Usage/{u=$3} /VRAM Total/{t=$3; printf \"%s/%s\\n\",u,t}' | head -8; "
+        "echo '---STALE---'; "
+        "docker ps -a --filter name=hyperloom --filter name=vllm --filter name=sglang "
+        "--format '{{.Names}} {{.Status}}' 2>/dev/null; "
+        f"echo '---CLEAN---'; {clean_block}; "
+        "echo '---DONE---'"
+    )
+
+    cmd = (
+        f"ssh {key_arg} -o BatchMode=yes -o ConnectTimeout=5 "
+        f"-o StrictHostKeyChecking=no {user}@{ip} '{remote_cmd}'"
+    )
+
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout_b, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
+        out = stdout_b.decode(errors="replace")
+    except asyncio.TimeoutError:
+        return {"is_reachable": False, "error": "timeout"}
+    except Exception as e:
+        return {"is_reachable": False, "error": str(e)}
+
+    if "PONG" not in out:
+        return {"is_reachable": False, "error": "ssh_failed"}
+
+    result: dict = {"is_reachable": True, "error": None}
+
+    # Parse RAM
+    try:
+        ram_line = out.split("---RAM---")[1].split("---GPU---")[0].strip()
+        parts = ram_line.split()
+        if len(parts) >= 3:
+            result["total_ram_gb"] = int(parts[0])
+            result["free_ram_gb"] = int(parts[1])
+            result["available_ram_gb"] = int(parts[2])
+        elif len(parts) >= 2:
+            result["total_ram_gb"] = int(parts[0])
+            result["free_ram_gb"] = int(parts[1])
+            result["available_ram_gb"] = int(parts[1])
+    except Exception:
+        result["total_ram_gb"] = 0
+        result["free_ram_gb"] = 0
+        result["available_ram_gb"] = 0
+
+    # Parse GPU count
+    try:
+        gpu_str = out.split("---GPU---")[1].split("---STALE---")[0].strip()
+        result["gpu_count"] = int(gpu_str) if gpu_str.isdigit() else 0
+    except Exception:
+        result["gpu_count"] = 0
+
+    # Parse stale containers
+    try:
+        stale_str = out.split("---STALE---")[1].split("---CLEAN---")[0].strip()
+        result["stale_containers"] = [s for s in stale_str.splitlines() if s.strip()]
+    except Exception:
+        result["stale_containers"] = []
+
+    # Parse cleanup
+    result["cleaned"] = "CLEANED" in out.split("---CLEAN---")[-1] if "---CLEAN---" in out else False
+    result["stale_containers_killed"] = len(result["stale_containers"]) if result["cleaned"] else 0
+
+    return result
+
+
+@router.post("/preflight")
+async def api_preflight(body: PreflightRequest = PreflightRequest()):
+    """Check fleet node health, kill stale jobs, return best node for next run."""
+    import time
+    t0 = time.monotonic()
+    conn = get_connection()
+
+    if body.node_ids:
+        placeholders = ",".join("?" for _ in body.node_ids)
+        rows = conn.execute(
+            f"SELECT * FROM fleet_nodes WHERE id IN ({placeholders})",
+            body.node_ids,
+        ).fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM fleet_nodes ORDER BY hostname").fetchall()
+
+    if not rows:
+        return {"nodes": [], "best_node": None, "unreachable": [], "checked_at": None}
+
+    tasks = []
+    node_info = []
+    for r in rows:
+        r = dict(r)
+        ip = r.get("ip_address")
+        if not ip:
+            continue
+        user = r.get("ssh_user") or "rghaffar"
+        key = r.get("ssh_key_path") or "~/.ssh/id_ed25519_moba"
+        node_info.append({"id": r["id"], "hostname": r["hostname"], "ip": ip})
+        tasks.append(_ssh_preflight_check(ip, user, key, body.clean_stale))
+
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    nodes_out = []
+    unreachable = []
+    now_iso = __import__("datetime").datetime.utcnow().isoformat() + "Z"
+
+    for info, result in zip(node_info, results):
+        if isinstance(result, Exception):
+            result = {"is_reachable": False, "error": str(result)}
+
+        reachable = result.get("is_reachable", False)
+        status = "healthy" if reachable else "unreachable"
+        if reachable and result.get("gpu_count", 0) == 0:
+            status = "degraded"
+
+        # Update DB
+        with conn:
+            conn.execute(
+                "UPDATE fleet_nodes SET status=?, last_probed=?, metadata_json=? WHERE id=?",
+                (status, now_iso, json.dumps(result), info["id"]),
+            )
+
+        entry = {
+            **info,
+            "status": status,
+            "free_ram_gb": result.get("free_ram_gb", 0),
+            "total_ram_gb": result.get("total_ram_gb", 0),
+            "available_ram_gb": result.get("available_ram_gb", 0),
+            "gpu_count": result.get("gpu_count", 0),
+            "stale_containers_killed": result.get("stale_containers_killed", 0),
+            "cleaned": result.get("cleaned", False),
+            "error": result.get("error"),
+        }
+        nodes_out.append(entry)
+        if not reachable:
+            unreachable.append(info["hostname"])
+
+    # Rank healthy nodes: most free RAM first, then GPU count
+    healthy = [n for n in nodes_out if n["status"] in ("healthy", "degraded") and n.get("free_ram_gb", 0) > 0]
+    healthy.sort(key=lambda n: (n.get("free_ram_gb", 0), n.get("gpu_count", 0)), reverse=True)
+
+    best = None
+    if healthy:
+        best = {"id": healthy[0]["id"], "hostname": healthy[0]["hostname"], "ip": healthy[0]["ip"]}
+
+    return {
+        "nodes": nodes_out,
+        "best_node": best,
+        "unreachable": unreachable,
+        "checked_at": now_iso,
+        "elapsed_seconds": round(time.monotonic() - t0, 2),
+    }
+
+
+@router.post("/nodes/{node_id}/recover")
+async def api_recover_node(node_id: str):
+    """Kill all GPU-holding processes on a node to free HBM and make it ready for next run.
+
+    This is more aggressive than preflight clean_stale — it kills ALL Docker containers
+    (not just hyperloom-optimize), all vLLM/ray processes, and removes lock files.
+    Use this when a node is stuck with full HBM from a crashed or zombie job.
+    """
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM fleet_nodes WHERE id = ?", (node_id,)
+    ).fetchone()
+    if not row:
+        raise HTTPException(404, f"Node {node_id} not found")
+
+    r = dict(row)
+    ip = r.get("ip_address")
+    if not ip:
+        raise HTTPException(400, "Node has no IP address configured")
+
+    user = r.get("ssh_user") or "rghaffar"
+    key_path = r.get("ssh_key_path") or "~/.ssh/id_ed25519_moba"
+    key_arg = f"-i {key_path}"
+
+    # Aggressive recovery: kill all GPU-holding containers and processes
+    recover_cmd = (
+        # Stop all running containers (not just hyperloom)
+        "docker ps -q 2>/dev/null | xargs -r docker stop 2>/dev/null; "
+        # Force remove any zombie containers
+        "docker ps -aq 2>/dev/null | xargs -r docker rm -f 2>/dev/null; "
+        # Kill vLLM, SGLang, ray processes running on host
+        "pkill -9 -f 'vllm.entrypoints' 2>/dev/null; "
+        "pkill -9 -f 'sglang' 2>/dev/null; "
+        "pkill -9 -f 'hyperloom' 2>/dev/null; "
+        "pkill -9 -f 'ray::' 2>/dev/null; "
+        "ray stop --force 2>/dev/null; "
+        # Remove lock files
+        "find /hl-data -name 'optimizer.lock' -delete 2>/dev/null; "
+        # Wait for GPU memory release
+        "sleep 3; "
+        # Report free RAM and GPU status after recovery
+        "free -g | awk '/^Mem:/{print \"RAM free:\",$4,\"GB\"}'; "
+        "amd-smi list 2>/dev/null | grep -c '^GPU:' | awk '{print \"GPUs:\",$1}'; "
+        "echo RECOVERED"
+    )
+
+    ssh_cmd = (
+        f"ssh {key_arg} -o BatchMode=yes -o ConnectTimeout=10 "
+        f"-o StrictHostKeyChecking=no {user}@{ip} '{recover_cmd}'"
+    )
+
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            ssh_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=40)
+        out = stdout_b.decode(errors="replace")
+        success = "RECOVERED" in out
+    except asyncio.TimeoutError:
+        raise HTTPException(504, "Recovery timed out after 40s")
+    except Exception as e:
+        raise HTTPException(500, f"SSH failed: {e}")
+
+    # Update node status in DB
+    now_iso = __import__("datetime").datetime.utcnow().isoformat() + "Z"
+    with conn:
+        conn.execute(
+            "UPDATE fleet_nodes SET status='online', last_probed=? WHERE id=?",
+            (now_iso, node_id),
+        )
+
+    return {
+        "node_id": node_id,
+        "hostname": r.get("hostname"),
+        "ip": ip,
+        "recovered": success,
+        "output": out.strip(),
+    }

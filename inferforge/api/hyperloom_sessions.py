@@ -230,6 +230,19 @@ def api_get_session(session_id: str):
     return d
 
 
+@router.delete("/sessions/{session_id}", status_code=200)
+def api_delete_session(session_id: str):
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT id FROM hyperloom_sessions WHERE id = ?", (session_id,)
+    ).fetchone()
+    if not row:
+        raise HTTPException(404, f"Session {session_id} not found")
+    with conn:
+        conn.execute("DELETE FROM hyperloom_sessions WHERE id = ?", (session_id,))
+    return {"id": session_id, "deleted": True}
+
+
 @router.post("/sessions/{session_id}/cancel")
 def api_cancel_session(session_id: str):
     conn = get_connection()
