@@ -967,9 +967,9 @@ const Era = {
                 if (banner) banner.style.display = 'none';
             }
 
-            // Update the comparison panel if session is completed with gain data
-            if (sessionDone && data.session_status === 'completed') {
-                this._updateComparisonPanel(sessionId);
+            // Update the comparison panel for any finished session
+            if (sessionDone) {
+                this._updateComparisonPanel(sessionId, data);
             }
 
             const events = this._timelineToEvents(data);
@@ -983,13 +983,16 @@ const Era = {
         } catch (_) {}
     },
 
-    /** Fetch session details and show a baseline vs optimized comparison strip */
-    async _updateComparisonPanel(sessionId) {
+    /** Fetch session details and show a baseline vs optimized comparison strip.
+     *  Handles three cases:
+     *  1. Positive gain + outcome_json  → full before/after table + deploy command
+     *  2. Positive gain, no outcome_json → gain badge only (detail data not stored)
+     *  3. Zero/negative gain or incomplete phases → INTERRUPTED badge with reason
+     */
+    async _updateComparisonPanel(sessionId, timelineData) {
         try {
             const session = await API.get('/hyperloom/sessions/' + sessionId);
-            if (!session || !session.outcome_gain_pct) return;
-            const gain = session.outcome_gain_pct;
-            if (!gain || gain <= 0) return;
+            if (!session) return;
 
             const body = document.getElementById('timeline-body');
             if (!body) return;
@@ -1000,13 +1003,66 @@ const Era = {
                 body.appendChild(cmp);
             }
 
+            const gain = session.outcome_gain_pct;
             const oj = session.outcome_json || {};
             const bl = oj.baseline || {};
             const opt = oj.optimized || {};
             const flags = oj.winning_flags || [];
+            const hasDetail = oj.baseline && oj.optimized;
 
+            // Determine if session was interrupted (phases not all done)
+            const tl = session.timeline_json || timelineData?.timeline_json || [];
+            const completedPhases = tl.filter(p => p.status === 'complete').map(p => p.name);
+            const expectedPhases = ['PRELUDE','ENABLEMENT','FRAMEWORK_AGENT','KERNEL_AGENT','SWEEP','CLOSE'];
+            const allPhasesComplete = expectedPhases.every(p => completedPhases.includes(p));
+            const lastCompleted = completedPhases.length ? completedPhases[completedPhases.length - 1] : null;
+            const isInterrupted = !allPhasesComplete || !gain || gain <= 0;
+
+            cmp.style.cssText = 'flex-shrink:0;border-top:2px solid #2a2a44;padding:10px 14px 12px;font-family:var(--mono);font-size:12px;color:#c0c0d8;';
+
+            // ── INTERRUPTED PANEL ────────────────────────────────────────────────
+            if (isInterrupted) {
+                const stopReason = session.stop_reason || (lastCompleted ? `Stopped after ${lastCompleted}` : 'No phases completed');
+                const missedPhases = expectedPhases.filter(p => !completedPhases.includes(p));
+                cmp.style.background = 'linear-gradient(180deg,rgba(255,120,0,0.04) 0%,transparent 100%)';
+                cmp.innerHTML = `
+                  <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                    <span style="color:#ff9955;font-weight:700;font-size:13px">⚠ SESSION INTERRUPTED</span>
+                    <span style="background:#ff6622;color:#fff;font-weight:700;font-size:10px;padding:1px 8px;border-radius:10px">INCOMPLETE</span>
+                  </div>
+                  <div style="font-size:11px;color:#888;line-height:1.7;margin-bottom:6px">
+                    ${gain != null ? `<div>Best result: <span style="color:${gain>0?'#00c896':'#ff6677'};font-weight:700">${gain>0?'+':''}${gain.toFixed(2)}%</span> throughput vs baseline</div>` : ''}
+                    <div>Completed: ${completedPhases.length ? completedPhases.map(p=>`<span style="color:#aaaacc">${p}</span>`).join(' → ') : '<span style="color:#555577">none</span>'}</div>
+                    ${missedPhases.length ? `<div>Missed: ${missedPhases.map(p=>`<span style="color:#555577">${p}</span>`).join(' → ')}</div>` : ''}
+                    ${stopReason !== 'No phases completed' ? `<div style="margin-top:4px;color:#664433">Reason: ${stopReason}</div>` : ''}
+                  </div>
+                  <div style="border-top:1px solid #2a2a44;padding-top:8px;font-size:10px;color:#555577">
+                    KERNEL_AGENT and SWEEP phases are where the largest gains come from.<br>
+                    Re-run with <code style="background:#1a1a2e;padding:1px 4px;border-radius:2px;color:#a0c0ff">--max-hours 4.0</code> to reach all phases.
+                  </div>
+                `;
+                return;
+            }
+
+            // ── POSITIVE GAIN, NO DETAIL DATA ───────────────────────────────────
+            if (!hasDetail) {
+                cmp.style.background = 'linear-gradient(180deg,rgba(0,200,150,0.04) 0%,transparent 100%)';
+                cmp.innerHTML = `
+                  <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                    <span style="color:#00c896;font-weight:700;font-size:13px">✅ OPTIMIZATION COMPLETE</span>
+                    <span style="background:#00c896;color:#000;font-weight:700;font-size:11px;padding:1px 8px;border-radius:10px">+${gain.toFixed(2)}% throughput</span>
+                  </div>
+                  <div style="font-size:11px;color:#666688">
+                    Per-metric breakdown not available — outcome was recorded as a summary only.<br>
+                    Import the full Hyperloom breakdown file to see before/after detail.
+                  </div>
+                `;
+                return;
+            }
+
+            // ── FULL COMPARISON TABLE ────────────────────────────────────────────
             const fmt = (v, unit='') => v != null ? v.toLocaleString(undefined, {maximumFractionDigits:1}) + unit : '—';
-            const delta = (b, o, unit='', invert=false) => {
+            const delta = (b, o, invert=false) => {
                 if (b == null || o == null) return '';
                 const pct = ((o - b) / b * 100);
                 const up = invert ? pct < 0 : pct > 0;
@@ -1014,7 +1070,7 @@ const Era = {
                 return `<span style="color:${up?'#00c896':'#ff6677'};font-size:10px">${sign}${pct.toFixed(1)}%</span>`;
             };
 
-            cmp.style.cssText = 'flex-shrink:0;border-top:2px solid #2a2a44;background:linear-gradient(180deg,rgba(0,200,150,0.04) 0%,transparent 100%);padding:10px 14px 12px;font-family:var(--mono);font-size:12px;color:#c0c0d8;';
+            cmp.style.background = 'linear-gradient(180deg,rgba(0,200,150,0.04) 0%,transparent 100%)';
             cmp.innerHTML = `
               <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
                 <span style="color:#00c896;font-weight:700;font-size:13px">✅ OPTIMIZATION RESULTS</span>
@@ -1040,25 +1096,25 @@ const Era = {
                     <td style="padding:3px 6px 3px 0;color:#aaaacc">TTFT p50</td>
                     <td style="text-align:right;padding:3px 8px">${fmt(bl.ttft_p50_ms)} ms</td>
                     <td style="text-align:right;padding:3px 8px;color:#00c896;font-weight:700">${fmt(opt.ttft_p50_ms)} ms</td>
-                    <td style="text-align:right;padding:3px 0 3px 8px">${delta(bl.ttft_p50_ms, opt.ttft_p50_ms, '', true)}</td>
+                    <td style="text-align:right;padding:3px 0 3px 8px">${delta(bl.ttft_p50_ms, opt.ttft_p50_ms, true)}</td>
                   </tr>
                   <tr>
                     <td style="padding:3px 6px 3px 0;color:#aaaacc">TTFT p99</td>
                     <td style="text-align:right;padding:3px 8px">${fmt(bl.ttft_p99_ms)} ms</td>
                     <td style="text-align:right;padding:3px 8px;color:#00c896;font-weight:700">${fmt(opt.ttft_p99_ms)} ms</td>
-                    <td style="text-align:right;padding:3px 0 3px 8px">${delta(bl.ttft_p99_ms, opt.ttft_p99_ms, '', true)}</td>
+                    <td style="text-align:right;padding:3px 0 3px 8px">${delta(bl.ttft_p99_ms, opt.ttft_p99_ms, true)}</td>
                   </tr>
                   <tr style="background:rgba(255,255,255,0.02)">
                     <td style="padding:3px 6px 3px 0;color:#aaaacc">TPOT p50</td>
                     <td style="text-align:right;padding:3px 8px">${fmt(bl.tpot_p50_ms)} ms</td>
                     <td style="text-align:right;padding:3px 8px;color:#c0c0d8">${fmt(opt.tpot_p50_ms)} ms</td>
-                    <td style="text-align:right;padding:3px 0 3px 8px">${delta(bl.tpot_p50_ms, opt.tpot_p50_ms, '', true)}</td>
+                    <td style="text-align:right;padding:3px 0 3px 8px">${delta(bl.tpot_p50_ms, opt.tpot_p50_ms, true)}</td>
                   </tr>
                   <tr>
                     <td style="padding:3px 6px 3px 0;color:#aaaacc">E2E p50</td>
                     <td style="text-align:right;padding:3px 8px">${fmt(bl.e2e_p50_ms)} ms</td>
                     <td style="text-align:right;padding:3px 8px;color:#c0c0d8">${fmt(opt.e2e_p50_ms)} ms</td>
-                    <td style="text-align:right;padding:3px 0 3px 8px">${delta(bl.e2e_p50_ms, opt.e2e_p50_ms, '', true)}</td>
+                    <td style="text-align:right;padding:3px 0 3px 8px">${delta(bl.e2e_p50_ms, opt.e2e_p50_ms, true)}</td>
                   </tr>
                 </tbody>
               </table>
