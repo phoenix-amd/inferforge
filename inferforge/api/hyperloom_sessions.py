@@ -325,6 +325,8 @@ def api_kill_cluster_jobs():
         "docker rm -f hyperloom-optimize 2>/dev/null; "
         # Also kill any stray vllm / ray processes not inside Docker
         "pkill -f 'hyperloom optimize' 2>/dev/null; "
+        # Remove stale optimizer.lock files so next run doesn't fail
+        "find /hl-data -name 'optimizer.lock' -delete 2>/dev/null; "
         "echo KILLED"
     )
 

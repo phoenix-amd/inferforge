@@ -59,11 +59,11 @@ const Era = {
         setInterval(() => { if (this._sessionActive) this.loadDeployments(); }, 5000);
 
         // Timeline + session status auto-sync every 30s
+        // Always refresh sessions (drives running banner visibility, no _sessionActive guard)
         setInterval(() => {
             const sel = document.getElementById('timeline-session-select');
             if (sel && sel.value) this.loadTimeline();
-            // Also refresh the session list so new sessions appear
-            if (this._sessionActive) this.loadSessions();
+            this.loadSessions();
         }, 30000);
 
         this.initKeyboard();
@@ -871,6 +871,21 @@ const Era = {
                 // Delay render so panel has time to layout and report correct clientWidth
                 requestAnimationFrame(() => this.loadTimeline());
             }
+
+            // Show/hide the "HYPERLOOM RUNNING" banner based on DB session status.
+            // This survives page reloads — Hyperloom runs on cluster independently of the
+            // agent WebSocket, so we poll the DB directly rather than relying on WS events.
+            const anyRunning = data.sessions.some(s => s.status === 'running');
+            const banner = document.getElementById('era-hyperloom-banner');
+            const bannerText = document.getElementById('era-hyperloom-banner-text');
+            if (banner) {
+                if (anyRunning) {
+                    banner.style.display = 'flex';
+                    if (bannerText) bannerText.textContent = 'HYPERLOOM RUNNING ON CLUSTER — DO NOT CLOSE';
+                } else {
+                    banner.style.display = 'none';
+                }
+            }
         } catch (_) {}
     },
 
@@ -961,11 +976,8 @@ const Era = {
                 }
             }
 
-            // Auto-hide the "HYPERLOOM RUNNING" banner when session is done
-            if (sessionDone) {
-                const banner = document.getElementById('era-hyperloom-banner');
-                if (banner) banner.style.display = 'none';
-            }
+            // Banner visibility is managed by loadSessions() based on DB status.
+            // Don't touch the banner here — another session may still be running.
 
             // Update the comparison panel for any finished session
             if (sessionDone) {
