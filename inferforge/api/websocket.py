@@ -136,6 +136,8 @@ async def _run_agent_task(cid: str, api_messages: list, skill: str, mode: str,
                           run_type: str):
     """Run the agent in a background task so the WebSocket loop stays responsive."""
     assistant_text_parts: list[str] = []
+    tool_calls_log: list[dict] = []   # [{tool, input, output, exit_code}]
+    _current_tool: dict | None = None
     try:
         async for event in run_agent(
             messages=api_messages,
@@ -155,12 +157,25 @@ async def _run_agent_task(cid: str, api_messages: list, skill: str, mode: str,
 
             elif event_type == "tool_use_start":
                 tool_input = event.get("input", {})
+                _current_tool = {
+                    "tool": event.get("tool_name", "bash"),
+                    "input": tool_input,
+                    "output": "",
+                    "exit_code": None,
+                }
                 cmd = tool_input.get("command", "")
                 if "docker run" in cmd and "--name" in cmd:
                     parts = cmd.split("--name")
                     if len(parts) > 1:
                         container_name = parts[1].strip().split()[0]
                         _docker_containers[cid].add(container_name)
+
+            elif event_type == "tool_use_end":
+                if _current_tool is not None:
+                    _current_tool["exit_code"] = event.get("exit_code")
+                    _current_tool["output"] = event.get("content", "")
+                    tool_calls_log.append(_current_tool)
+                    _current_tool = None
 
             elif event_type == "metrics_reported":
                 metrics_data = event.get("data", {})
@@ -177,7 +192,11 @@ async def _run_agent_task(cid: str, api_messages: list, skill: str, mode: str,
             elif event_type == "message_complete":
                 full_text = "".join(assistant_text_parts)
                 if full_text.strip():
-                    add_message(cid, "assistant", full_text)
+                    add_message(cid, "assistant", full_text,
+                                tool_calls=tool_calls_log or None)
+                assistant_text_parts = []
+                tool_calls_log = []
+                _current_tool = None
                 if cid in _docker_containers and _docker_containers[cid]:
                     asyncio.create_task(_cleanup_containers(cid))
 
@@ -187,7 +206,8 @@ async def _run_agent_task(cid: str, api_messages: list, skill: str, mode: str,
         # Agent was cancelled — save partial text and notify
         full_text = "".join(assistant_text_parts)
         if full_text.strip():
-            add_message(cid, "assistant", full_text + "\n\n*[Stopped by user]*")
+            add_message(cid, "assistant", full_text + "\n\n*[Stopped by user]*",
+                        tool_calls=tool_calls_log or None)
         await _broadcast(cid, {"type": "error", "content": "Job stopped by user."})
         await _broadcast(cid, {"type": "message_complete"})
         if cid in _docker_containers and _docker_containers[cid]:

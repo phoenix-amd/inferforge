@@ -2576,7 +2576,7 @@ const Era = {
             const conv = await API.get('/conversations/' + cid);
             for (const msg of (conv.messages || [])) {
                 if (msg.role === 'user') Chat.addUserBubble(msg.content);
-                else if (msg.role === 'assistant') Chat.addAssistantBubble(msg.content);
+                else if (msg.role === 'assistant') Chat.addAssistantBubble(msg.content, msg.tool_calls);
             }
             Chat.scrollToBottom(true);
             this.connectWebSocket(cid);
