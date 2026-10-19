@@ -140,9 +140,14 @@ WAIT for the user to reply. Do NOT proceed without their choice.
 - Run engine.py memory calculator only
 - Present full simulation report (all 7 sections from report_format.md)
 
-**Autonomous mode exception:** In Autonomous mode, model-not-found is the ONE
-pause point. Everything else runs without confirmation. If exact match found →
-proceed automatically. If similar or not found → STOP and present options.
+**Model selection is ALWAYS required — no exceptions, no autonomous bypass:**
+ALWAYS run the 3-path model discovery check and ALWAYS present Options 1/2/3 to the user
+BEFORE launching Docker — even in Autonomous mode, even if a model path is already specified
+in the prompt. The user must explicitly confirm which model to use every single time.
+If exact match found → show it as Option 1 and WAIT for confirmation.
+If similar match found → show it as Option 1 and WAIT.
+If not found → show Options 2 and 3 and WAIT.
+NEVER skip model confirmation. NEVER auto-proceed to Docker without user reply.
 
 Never start Docker if the model path doesn't exist -- vLLM will fail silently or timeout.
 
