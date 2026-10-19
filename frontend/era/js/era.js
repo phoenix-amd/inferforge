@@ -2184,7 +2184,7 @@ const Era = {
             '      --gpu-type mi300x \\\n' +
             '      --tp 8 \\\n' +
             '      --precision bfloat16 \\\n' +
-            '      --max-hours 2.0 \\\n' +
+            '      --max-hours 2.5 \\\n' +
             '      --critic-mock" > ~/hyperloom-run.log 2>&1\n\n' +
             'STEP 7 — After each phase change, PATCH /api/hyperloom/sessions/{id} with updated timeline_json (mark completed phases with real end_time timestamps).\n\n' +
             'STEP 8 — Tail log and report progress every 5 minutes: ssh: tail -100 ~/hyperloom-run.log\n\n' +
