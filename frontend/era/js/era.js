@@ -2540,13 +2540,20 @@ const Era = {
                     : (c.created_at ? new Date(c.created_at).toLocaleString() : '');
                 const title = c.title || ('Conversation ' + c.id.slice(0, 8));
                 const mode  = c.mode ? `<span style="background:#2d1b69;color:#a78bfa;padding:2px 6px;border-radius:3px;font-size:9px;margin-left:6px;">${c.mode.toUpperCase()}</span>` : '';
-                return `<div onclick="Era._pickConversation('${c.id}')"
-                    style="padding:12px 18px;cursor:pointer;border-bottom:1px solid #1f1f38;display:flex;flex-direction:column;gap:4px;"
+                return `<div data-conv-id="${c.id}"
+                    style="padding:12px 18px;cursor:pointer;border-bottom:1px solid #1f1f38;display:flex;align-items:center;gap:8px;"
                     onmouseenter="this.style.background='#1f1f38'" onmouseleave="this.style.background=''">
-                  <div style="display:flex;align-items:center;">
-                    <span style="color:#e5e7eb;font-size:12px;font-weight:600;">${title}</span>${mode}
+                  <div onclick="Era._pickConversation('${c.id}')" style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;">
+                    <div style="display:flex;align-items:center;">
+                      <span style="color:#e5e7eb;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${title}</span>${mode}
+                    </div>
+                    <span style="color:#6b7280;font-size:10px;">${date}</span>
                   </div>
-                  <span style="color:#6b7280;font-size:10px;">${date}</span>
+                  <button onclick="event.stopPropagation();Era._deleteConversation('${c.id}',this)"
+                    title="Delete conversation"
+                    style="flex-shrink:0;background:none;border:1px solid #3f1f1f;color:#6b2b2b;border-radius:4px;width:24px;height:24px;cursor:pointer;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center;transition:all 0.15s"
+                    onmouseenter="this.style.background='#3f1f1f';this.style.color='#ef4444';this.style.borderColor='#ef4444'"
+                    onmouseleave="this.style.background='none';this.style.color='#6b2b2b';this.style.borderColor='#3f1f1f'">✕</button>
                 </div>`;
             }).join('');
         } catch (e) {
@@ -2557,6 +2564,23 @@ const Era = {
     closeHistoryPicker() {
         const modal = document.getElementById('history-modal');
         if (modal) modal.style.display = 'none';
+    },
+
+    async _deleteConversation(cid, btn) {
+        btn.textContent = '…';
+        btn.disabled = true;
+        try {
+            await API.delete('/conversations/' + cid);
+            const row = document.querySelector(`[data-conv-id="${cid}"]`);
+            if (row) row.remove();
+            const list = document.getElementById('history-list');
+            if (list && !list.children.length) {
+                list.innerHTML = '<div style="padding:20px;color:#6b7280;font-size:12px;text-align:center;">No previous conversations.</div>';
+            }
+        } catch (_) {
+            btn.textContent = '✕';
+            btn.disabled = false;
+        }
     },
 
     async _pickConversation(cid) {
