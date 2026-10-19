@@ -1141,6 +1141,10 @@ const Era = {
             phaseMap[name] = p;
         }
 
+        // Use PRELUDE start as the anchor — all other phases must start >= PRELUDE start.
+        // This guards against bad timestamps (e.g. agent patched ENABLEMENT with an old time).
+        const preludeAnchor = (phaseMap['PRELUDE']?.start_time || 0);
+
         // Find the latest known end time for capping running phases when session is done
         let latestEnd = 0;
         for (const p of (data.phases || [])) {
@@ -1161,19 +1165,21 @@ const Era = {
                     _pending: true,
                 };
             }
+            // Clamp start_time: never let a phase start before PRELUDE (bad agent patches)
+            const safeStart = preludeAnchor > 0 ? Math.max(p.start_time, preludeAnchor) : p.start_time;
             let endTime;
             if (p.end_time > 0) {
-                endTime = p.end_time;
+                endTime = Math.max(p.end_time, safeStart);
             } else if (p.status === 'running' && !sessionDone) {
                 endTime = nowSec;  // still ticking
             } else {
                 // Session is done OR phase is not running — use latest known time
-                const fallbackEnd = Math.max(latestEnd, p.start_time + (p.duration || 60));
-                endTime = sessionDone ? fallbackEnd : p.start_time + (p.duration || 300);
+                const fallbackEnd = Math.max(latestEnd, safeStart + (p.duration || 60));
+                endTime = sessionDone ? fallbackEnd : safeStart + (p.duration || 300);
             }
             return {
                 label: name,
-                start: p.start_time,
+                start: safeStart,
                 end: endTime,
                 color: phaseColors[name] || '#4488ff',
                 status: p.status || 'complete',
