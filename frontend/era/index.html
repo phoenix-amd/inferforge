@@ -286,7 +286,7 @@
         </div>
         <div class="era-chat-controls">
           <button class="era-panel-btn" onclick="Era.toggleConfig()" title="Configure cluster &amp; model" id="btn-config">⚙</button>
-          <button class="era-panel-btn" onclick="Era.loadHistory()" title="Load chat history">↺</button>
+          <button class="era-panel-btn" onclick="Era.showHistoryPicker()" title="Browse chat history">↺</button>
           <button class="era-panel-btn" onclick="Era.newChat()" title="New Chat">+</button>
         </div>
       </div>
@@ -533,6 +533,17 @@
 
 <!-- Era Theme JS -->
 <script src="/era/js/era.js?v=1792217222"></script>
+
+<!-- ── HISTORY PICKER MODAL ── -->
+<div id="history-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);display:none;align-items:center;justify-content:center;">
+  <div style="background:#1a1a2e;border:1px solid #7c3aed;border-radius:8px;width:560px;max-width:95vw;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #2d2d4e;">
+      <span style="color:#a78bfa;font-size:11px;font-weight:700;letter-spacing:2px;">CHAT HISTORY</span>
+      <button onclick="Era.closeHistoryPicker()" style="background:none;border:none;color:#6b7280;font-size:18px;cursor:pointer;line-height:1;">✕</button>
+    </div>
+    <div id="history-list" style="overflow-y:auto;flex:1;padding:8px 0;"></div>
+  </div>
+</div>
 
 </body>
 </html>

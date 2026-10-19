@@ -51,6 +51,13 @@ const Era = {
             this._showEmptyTelemetry();
             this._showEmptyBenchmarks();
             this._showEmptyDeployments();
+            // Snapshot latest existing deployment so pipeline stays empty
+            // until a NEW deployment is created in this session
+            try {
+                const dd = await API.get('/deployments');
+                const lat = dd?.deployments?.[0];
+                if (lat) this._ignoreDeployBefore = lat.id;
+            } catch (_) {}
         }
 
         // Always start GPU telemetry polling
@@ -2429,28 +2436,72 @@ const Era = {
        ============================================================ */
 
     async loadHistory() {
+        // kept for internal use — loads a specific conversation by ID
+        await this._loadConversation(State.get('currentConvId'));
+    },
+
+    async showHistoryPicker() {
+        const modal = document.getElementById('history-modal');
+        const list  = document.getElementById('history-list');
+        if (!modal || !list) return;
+
+        list.innerHTML = '<div style="padding:20px;color:#6b7280;font-size:12px;text-align:center;">Loading…</div>';
+        modal.style.display = 'flex';
+
         try {
-            const raw = await API.get('/conversations');
-            const convs = raw?.conversations || (Array.isArray(raw) ? raw : null);
-            if (!convs || !convs.length) {
-                this._showToast('NO HISTORY');
+            const raw  = await API.get('/conversations');
+            const convs = raw?.conversations || (Array.isArray(raw) ? raw : []);
+            if (!convs.length) {
+                list.innerHTML = '<div style="padding:20px;color:#6b7280;font-size:12px;text-align:center;">No previous conversations.</div>';
                 return;
             }
-            this._markSessionActive();
-            const latest = convs[0];
-            State.set('currentConvId', latest.id);
-            Chat.clear();
 
+            list.innerHTML = convs.map(c => {
+                const date = c.updated_at
+                    ? new Date(c.updated_at).toLocaleString()
+                    : (c.created_at ? new Date(c.created_at).toLocaleString() : '');
+                const title = c.title || ('Conversation ' + c.id.slice(0, 8));
+                const mode  = c.mode ? `<span style="background:#2d1b69;color:#a78bfa;padding:2px 6px;border-radius:3px;font-size:9px;margin-left:6px;">${c.mode.toUpperCase()}</span>` : '';
+                return `<div onclick="Era._pickConversation('${c.id}')"
+                    style="padding:12px 18px;cursor:pointer;border-bottom:1px solid #1f1f38;display:flex;flex-direction:column;gap:4px;"
+                    onmouseenter="this.style.background='#1f1f38'" onmouseleave="this.style.background=''">
+                  <div style="display:flex;align-items:center;">
+                    <span style="color:#e5e7eb;font-size:12px;font-weight:600;">${title}</span>${mode}
+                  </div>
+                  <span style="color:#6b7280;font-size:10px;">${date}</span>
+                </div>`;
+            }).join('');
+        } catch (e) {
+            list.innerHTML = '<div style="padding:20px;color:#ef4444;font-size:12px;text-align:center;">Failed to load history.</div>';
+        }
+    },
+
+    closeHistoryPicker() {
+        const modal = document.getElementById('history-modal');
+        if (modal) modal.style.display = 'none';
+    },
+
+    async _pickConversation(cid) {
+        this.closeHistoryPicker();
+        await this._loadConversation(cid);
+    },
+
+    async _loadConversation(cid) {
+        if (!cid) return;
+        try {
+            this._markSessionActive();
+            State.set('currentConvId', cid);
+            Chat.clear();
             const welcome = document.querySelector('.era-chat-welcome');
             if (welcome) welcome.remove();
 
-            const conv = await API.get('/conversations/' + latest.id);
+            const conv = await API.get('/conversations/' + cid);
             for (const msg of (conv.messages || [])) {
                 if (msg.role === 'user') Chat.addUserBubble(msg.content);
                 else if (msg.role === 'assistant') Chat.addAssistantBubble(msg.content);
             }
             Chat.scrollToBottom(true);
-            this.connectWebSocket(latest.id);
+            this.connectWebSocket(cid);
             this._showToast('HISTORY LOADED');
         } catch (e) {
             this._showToast('LOAD FAILED');
