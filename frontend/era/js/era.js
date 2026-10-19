@@ -28,37 +28,28 @@ const Era = {
         // Check if this tab already had an active session (survives page refresh)
         this._sessionActive = sessionStorage.getItem('inferforge_session_active') === '1';
 
+        // Always load historical data (sessions + benchmarks persist in DB across restarts)
+        await Promise.all([
+            this.loadStatus(),
+            this.loadFleet(),
+            this.loadSessions(),
+            this.loadBenchmarks(),
+        ]);
+
         if (this._sessionActive) {
-            // Returning session — load everything from DB EXCEPT deployments
-            // (deployment pipeline always starts clean on page load)
-            await Promise.all([
-                this.loadStatus(),
-                this.loadFleet(),
-                this.loadSessions(),
-                this.loadBenchmarks(),
-            ]);
-            this._showEmptyDeployments();
-            // Ignore any pre-existing deployments so the pipeline stays clean
-            // until a NEW deployment is created in this session
-            try {
-                const dd = await API.get('/deployments');
-                const lat = dd?.deployments?.[0];
-                if (lat) this._ignoreDeployBefore = lat.id;
-            } catch (_) {}
+            // Returning session — deployment pipeline continues from where we left off
         } else {
-            // Fresh login — show clean panels (no historical data)
-            await this.loadStatus();
+            // Fresh login — telemetry starts clean, but historical run data shows
             this._showEmptyTelemetry();
-            this._showEmptyBenchmarks();
-            this._showEmptyDeployments();
-            // Snapshot latest existing deployment so pipeline stays empty
-            // until a NEW deployment is created in this session
-            try {
-                const dd = await API.get('/deployments');
-                const lat = dd?.deployments?.[0];
-                if (lat) this._ignoreDeployBefore = lat.id;
-            } catch (_) {}
         }
+
+        // Deployment pipeline: always start clean — snapshot latest so only NEW ones appear
+        this._showEmptyDeployments();
+        try {
+            const dd = await API.get('/deployments');
+            const lat = dd?.deployments?.[0];
+            if (lat) this._ignoreDeployBefore = lat.id;
+        } catch (_) {}
 
         // Always start GPU telemetry polling
         this._telemetryTimer = setInterval(() => this._pollTelemetry(), 10000);
@@ -1000,21 +991,80 @@ const Era = {
             const gain = session.outcome_gain_pct;
             if (!gain || gain <= 0) return;
 
-            // Show comparison in the timeline panel body
             const body = document.getElementById('timeline-body');
             if (!body) return;
             let cmp = document.getElementById('era-session-comparison');
             if (!cmp) {
                 cmp = document.createElement('div');
                 cmp.id = 'era-session-comparison';
-                cmp.style.cssText = 'padding:8px 12px;border-top:1px solid #2a2a44;font-family:var(--mono);font-size:12px;color:#c0c0d8;display:flex;gap:24px;flex-wrap:wrap;flex-shrink:0;background:rgba(0,200,150,0.05);';
                 body.appendChild(cmp);
             }
+
+            const oj = session.outcome_json || {};
+            const bl = oj.baseline || {};
+            const opt = oj.optimized || {};
+            const flags = oj.winning_flags || [];
+
+            const fmt = (v, unit='') => v != null ? v.toLocaleString(undefined, {maximumFractionDigits:1}) + unit : '—';
+            const delta = (b, o, unit='', invert=false) => {
+                if (b == null || o == null) return '';
+                const pct = ((o - b) / b * 100);
+                const up = invert ? pct < 0 : pct > 0;
+                const sign = pct > 0 ? '+' : '';
+                return `<span style="color:${up?'#00c896':'#ff6677'};font-size:10px">${sign}${pct.toFixed(1)}%</span>`;
+            };
+
+            cmp.style.cssText = 'flex-shrink:0;border-top:2px solid #2a2a44;background:linear-gradient(180deg,rgba(0,200,150,0.04) 0%,transparent 100%);padding:10px 14px 12px;font-family:var(--mono);font-size:12px;color:#c0c0d8;';
             cmp.innerHTML = `
-              <span style="color:#00c896;font-weight:700">✅ OPTIMIZATION COMPLETE</span>
-              <span>Gain: <strong style="color:#00c896">+${gain.toFixed(2)}%</strong></span>
-              <span>Baseline → Optimized throughput improved</span>
-              <span style="color:#555577;font-size:10px">Recipe: full_cuda_graph + max-num-seqs 128</span>
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                <span style="color:#00c896;font-weight:700;font-size:13px">✅ OPTIMIZATION RESULTS</span>
+                <span style="background:#00c896;color:#000;font-weight:700;font-size:11px;padding:1px 8px;border-radius:10px">+${gain.toFixed(2)}% throughput</span>
+              </div>
+              <table style="width:100%;border-collapse:collapse;font-size:11px">
+                <thead>
+                  <tr>
+                    <th style="text-align:left;color:#555577;padding:2px 6px 4px 0;border-bottom:1px solid #2a2a44;width:30%">Metric</th>
+                    <th style="text-align:right;color:#888;padding:2px 8px 4px;border-bottom:1px solid #2a2a44">Baseline</th>
+                    <th style="text-align:right;color:#00c896;padding:2px 8px 4px;border-bottom:1px solid #2a2a44">Optimized</th>
+                    <th style="text-align:right;color:#555577;padding:2px 0 4px 8px;border-bottom:1px solid #2a2a44">Delta</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style="padding:3px 6px 3px 0;color:#aaaacc">Throughput</td>
+                    <td style="text-align:right;padding:3px 8px">${fmt(bl.throughput_tps)} tok/s</td>
+                    <td style="text-align:right;padding:3px 8px;color:#00c896;font-weight:700">${fmt(opt.throughput_tps)} tok/s</td>
+                    <td style="text-align:right;padding:3px 0 3px 8px">${delta(bl.throughput_tps, opt.throughput_tps)}</td>
+                  </tr>
+                  <tr style="background:rgba(255,255,255,0.02)">
+                    <td style="padding:3px 6px 3px 0;color:#aaaacc">TTFT p50</td>
+                    <td style="text-align:right;padding:3px 8px">${fmt(bl.ttft_p50_ms)} ms</td>
+                    <td style="text-align:right;padding:3px 8px;color:#00c896;font-weight:700">${fmt(opt.ttft_p50_ms)} ms</td>
+                    <td style="text-align:right;padding:3px 0 3px 8px">${delta(bl.ttft_p50_ms, opt.ttft_p50_ms, '', true)}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:3px 6px 3px 0;color:#aaaacc">TTFT p99</td>
+                    <td style="text-align:right;padding:3px 8px">${fmt(bl.ttft_p99_ms)} ms</td>
+                    <td style="text-align:right;padding:3px 8px;color:#00c896;font-weight:700">${fmt(opt.ttft_p99_ms)} ms</td>
+                    <td style="text-align:right;padding:3px 0 3px 8px">${delta(bl.ttft_p99_ms, opt.ttft_p99_ms, '', true)}</td>
+                  </tr>
+                  <tr style="background:rgba(255,255,255,0.02)">
+                    <td style="padding:3px 6px 3px 0;color:#aaaacc">TPOT p50</td>
+                    <td style="text-align:right;padding:3px 8px">${fmt(bl.tpot_p50_ms)} ms</td>
+                    <td style="text-align:right;padding:3px 8px;color:#c0c0d8">${fmt(opt.tpot_p50_ms)} ms</td>
+                    <td style="text-align:right;padding:3px 0 3px 8px">${delta(bl.tpot_p50_ms, opt.tpot_p50_ms, '', true)}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:3px 6px 3px 0;color:#aaaacc">E2E p50</td>
+                    <td style="text-align:right;padding:3px 8px">${fmt(bl.e2e_p50_ms)} ms</td>
+                    <td style="text-align:right;padding:3px 8px;color:#c0c0d8">${fmt(opt.e2e_p50_ms)} ms</td>
+                    <td style="text-align:right;padding:3px 0 3px 8px">${delta(bl.e2e_p50_ms, opt.e2e_p50_ms, '', true)}</td>
+                  </tr>
+                </tbody>
+              </table>
+              ${flags.length ? `<div style="margin-top:8px;color:#555577;font-size:10px;line-height:1.6">
+                <span style="color:#888">Winning config: </span>${flags.map(f=>`<code style="background:#1a1a2e;padding:1px 5px;border-radius:3px;color:#c0d8ff">${f}</code>`).join(' ')}
+              </div>` : ''}
             `;
         } catch (_) {}
     },
