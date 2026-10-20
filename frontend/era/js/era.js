@@ -1002,17 +1002,44 @@ const Era = {
 
             // Auto-mark sessions whose phases are all done but status is still 'running'
             data.sessions.filter(s => s.status === 'running' && _allPhasesComplete(s)).forEach(s => {
-                API.patch('/hyperloom/sessions/' + s.id, { status: 'completed' }).catch(() => {});
+                const now = new Date().toISOString();
+                API.patch('/hyperloom/sessions/' + s.id, {
+                    status: 'completed', stop_reason: 'sweep_done', ended_at: now
+                }).catch(() => {});
             });
+
+            // Find most recently completed session (for green banner)
+            const lastCompleted = data.sessions
+                .filter(s => s.status === 'completed' && s.outcome_gain_pct != null)
+                .sort((a, b) => (b.ended_at || b.started_at || '').localeCompare(a.ended_at || a.started_at || ''))
+                [0] || null;
+            const justFinished = !anyRunning && lastCompleted &&
+                (Date.now() - new Date(lastCompleted.ended_at || lastCompleted.started_at).getTime()) < 5 * 60 * 1000;
 
             const banner = document.getElementById('era-hyperloom-banner');
             const bannerText = document.getElementById('era-hyperloom-banner-text');
             if (banner) {
                 if (!anyRunning) {
-                    // No running sessions — clear all state
-                    banner.style.display = 'none';
-                    banner.style.background = '';
-                    banner.style.border = '';
+                    // Show green completion banner briefly, then hide
+                    if (justFinished && !this._completionBannerShown) {
+                        this._completionBannerShown = true;
+                        banner.style.display = 'flex';
+                        banner.style.background = 'rgba(0,200,100,0.2)';
+                        banner.style.border = '1px solid #00c864';
+                        if (bannerText) bannerText.textContent =
+                            '✅ OPTIMIZATION COMPLETE — ' +
+                            (lastCompleted.model_name?.split('/').pop() || 'Job') +
+                            ' | Gain: +' + (lastCompleted.outcome_gain_pct || 0).toFixed(2) + '%';
+                        setTimeout(() => {
+                            banner.style.display = 'none';
+                            banner.style.background = '';
+                            banner.style.border = '';
+                        }, 10000);
+                    } else if (!justFinished) {
+                        banner.style.display = 'none';
+                        banner.style.background = '';
+                        banner.style.border = '';
+                    }
                     this._wsDisconnectState = null;
                     this._lastTimelineSnapshot = null;
                     this._timelineLastChangedAt = null;
@@ -1028,6 +1055,7 @@ const Era = {
                         this._nodeUnreachable = false;  // activity = node is up
                     }
                     if (!this._timelineLastChangedAt) this._timelineLastChangedAt = Date.now();
+                    this._completionBannerShown = false;  // reset so next completion shows green banner
 
                     // Start 2-min node ping loop if not already running
                     if (!this._nodePingInterval) {

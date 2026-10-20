@@ -75,6 +75,12 @@ def api_create_session(body: SessionCreateRequest):
     now = __import__("datetime").datetime.utcnow().isoformat() + "Z"
     timeline = json.dumps(body.timeline_json) if body.timeline_json else None
     with conn:
+        # Supersede any existing running sessions to prevent ghost sessions
+        conn.execute(
+            "UPDATE hyperloom_sessions SET status='stopped', stop_reason='superseded_by_new_run', "
+            "ended_at=? WHERE status='running'",
+            (now,),
+        )
         conn.execute(
             "INSERT INTO hyperloom_sessions "
             "(id, host, model_name, model_path, framework_name, gpu_type, "
