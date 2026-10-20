@@ -1032,10 +1032,19 @@ const Era = {
                         const _doPing = async () => {
                             try {
                                 const pr = await API.get('/fleet/nodes/ping');
-                                this._nodeUnreachable = !!pr?.any_unreachable_with_job;
+                                if (pr?.any_unreachable_with_job) {
+                                    // Require 2 consecutive failures to avoid false positives
+                                    // during heavy GPU load (model loading spikes SSH response time)
+                                    this._nodeUnreachableCount = (this._nodeUnreachableCount || 0) + 1;
+                                    if (this._nodeUnreachableCount >= 2) this._nodeUnreachable = true;
+                                } else {
+                                    // Node is responding — clear both counter and flag immediately
+                                    this._nodeUnreachableCount = 0;
+                                    this._nodeUnreachable = false;
+                                }
                             } catch (_) {}
                         };
-                        _doPing();  // immediate first ping
+                        setTimeout(_doPing, 30 * 1000);  // first ping after 30s (job stabilization)
                         this._nodePingInterval = setInterval(_doPing, 2 * 60 * 1000);
                     }
 
@@ -2570,7 +2579,8 @@ const Era = {
     _wsDisconnectState: null,       // null | 'not_launched' | 'launched'
     _lastTimelineSnapshot: null,    // JSON of running session timeline — stale detection
     _timelineLastChangedAt: null,   // ms timestamp when snapshot last changed
-    _nodeUnreachable: false,        // set true by 2-min ping loop
+    _nodeUnreachable: false,        // set true only after 2 consecutive ping failures
+    _nodeUnreachableCount: 0,       // consecutive failure counter — prevents false positives
     _nodePingInterval: null,        // setInterval handle
 
     /** Called when WS closes abnormally — detect whether Docker launched and set flag */
@@ -2660,6 +2670,7 @@ const Era = {
         // Reset ALL node/stale/banner state so the banner goes back to normal amber
         this._userInitiatedStop = true;
         this._nodeUnreachable = false;
+        this._nodeUnreachableCount = 0;
         this._wsDisconnectState = null;
         this._lastTimelineSnapshot = null;
         this._timelineLastChangedAt = null;
@@ -2795,6 +2806,7 @@ const Era = {
         this._userInitiatedStop = true;   // suppress disconnect banner on clean stop
         this._clearDisconnectBanner();    // clear any existing disconnect banner
         this._nodeUnreachable = false;
+        this._nodeUnreachableCount = 0;
         if (this._nodePingInterval) { clearInterval(this._nodePingInterval); this._nodePingInterval = null; }
 
         // 1. Close WebSocket immediately — stops ALL streaming to UI right now
