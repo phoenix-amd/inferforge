@@ -2284,14 +2284,21 @@ const Era = {
         );
     },
 
+    _silentMode: false,   // when true, quickCommand hides the text from chat input
+
     quickCommand(text) {
         const input = document.getElementById('chat-input');
         if (input) {
             input.value = text;
             this.autoResize(input);
-            input.focus();
+            if (!this._silentMode) input.focus();
         }
         this.sendMessage();
+        if (this._silentMode) {
+            // Clear the input immediately so the long command text doesn't show in the UI
+            if (input) { input.value = ''; this.autoResize(input); }
+            this._silentMode = false;
+        }
     },
 
     /** Direct memory calculator — calls API without agent, instant results */
@@ -2620,15 +2627,29 @@ const Era = {
 
         if (!confirmed) return;
 
-        // Stop all running jobs
-        this._showToast('Stopping jobs and switching node…', 3000);
+        // Stop all running jobs and clean up all banner/stale state
+        this._showToast('Stopping failed job and switching to healthy node…', 4000);
         await API.post('/hyperloom/kill').catch(() => {});
+
+        // Reset ALL node/stale/banner state so the banner goes back to normal amber
         this._userInitiatedStop = true;
         this._nodeUnreachable = false;
+        this._wsDisconnectState = null;
+        this._lastTimelineSnapshot = null;
+        this._timelineLastChangedAt = null;
         if (this._nodePingInterval) { clearInterval(this._nodePingInterval); this._nodePingInterval = null; }
 
-        // Small delay then start fresh on the healthy node
+        // Reset banner immediately to normal state while preflight runs
+        const banner = document.getElementById('era-hyperloom-banner');
+        const bannerText = document.getElementById('era-hyperloom-banner-text');
+        const switchBtn = document.getElementById('era-banner-switch-btn');
+        if (banner) { banner.style.background = ''; banner.style.border = ''; }
+        if (bannerText) bannerText.textContent = 'SWITCHING NODE — Starting on healthy node…';
+        if (switchBtn) switchBtn.style.display = 'none';
+
+        // Small delay then start fresh on the healthy node — silently (no command shown in chat)
         await new Promise(r => setTimeout(r, 1500));
+        this._silentMode = true;  // suppress the long command text from appearing in chat input
         this.autoOptimizeCommand();  // preflight will pick the healthy node automatically
     },
 
