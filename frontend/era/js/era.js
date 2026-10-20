@@ -979,11 +979,32 @@ const Era = {
             const banner = document.getElementById('era-hyperloom-banner');
             const bannerText = document.getElementById('era-hyperloom-banner-text');
             if (banner) {
-                if (anyRunning) {
-                    banner.style.display = 'flex';
-                    if (bannerText) bannerText.textContent = 'HYPERLOOM RUNNING ON CLUSTER — DO NOT CLOSE';
-                } else {
+                if (!anyRunning) {
+                    // No running sessions — clear everything including disconnect state
                     banner.style.display = 'none';
+                    banner.style.background = '';
+                    banner.style.border = '';
+                    this._wsDisconnectState = null;
+                } else if (this._wsDisconnectState === 'not_launched') {
+                    // WS dropped before Docker started — red error banner
+                    banner.style.display = 'flex';
+                    banner.style.background = 'rgba(255, 40, 40, 0.25)';
+                    banner.style.border = '1px solid #ff3333';
+                    if (bannerText) bannerText.textContent =
+                        '⚠ LAUNCH INTERRUPTED — Connection lost before Docker started. Click STOP ALL to clean up, then retry.';
+                } else if (this._wsDisconnectState === 'launched') {
+                    // WS dropped after Docker started — job is fine, orange info banner
+                    banner.style.display = 'flex';
+                    banner.style.background = 'rgba(255, 140, 0, 0.2)';
+                    banner.style.border = '1px solid #ff8c00';
+                    if (bannerText) bannerText.textContent =
+                        '⚠ CONNECTION LOST — Job is still running on cluster. Reconnect or wait for it to finish, results are 100% valid ✅';
+                } else {
+                    // Normal running state
+                    banner.style.display = 'flex';
+                    banner.style.background = '';
+                    banner.style.border = '';
+                    if (bannerText) bannerText.textContent = 'HYPERLOOM RUNNING ON CLUSTER — DO NOT CLOSE';
                 }
             }
 
@@ -2452,11 +2473,49 @@ const Era = {
 
         this._ws = API.connectWebSocket('/ws/chat/' + cid, {
             onOpen: () => {},
-            onClose: () => { this._setIdle(); },
+            onClose: (evt) => {
+                this._setIdle();
+                // Only show disconnect banner on abnormal close (not user-initiated stop)
+                if (!this._userInitiatedStop) {
+                    this._onWsAbnormalClose();
+                }
+                this._userInitiatedStop = false;
+            },
             onError: () => {},
             onMessage: (data) => this.handleEvent(data),
         });
         this._ws._cid = cid;
+    },
+
+    _userInitiatedStop: false,
+    _wsDisconnectState: null,   // null | 'not_launched' | 'launched'
+
+    /** Called when WS closes abnormally — detect whether Docker launched and set flag */
+    async _onWsAbnormalClose() {
+        try {
+            const data = await API.get('/hyperloom/sessions');
+            const running = (data?.sessions || []).find(s => s.status === 'running');
+            if (!running) return;  // no running session — loadSessions will handle banner
+            const prelude = (running.timeline_json || []).find(p => p.name === 'PRELUDE');
+            // If PRELUDE has a real start_time > 0, Docker launched and the agent confirmed it
+            const dockerLaunched = prelude && prelude.start_time > 0;
+            this._wsDisconnectState = dockerLaunched ? 'launched' : 'not_launched';
+        } catch (_) {
+            this._wsDisconnectState = 'not_launched';
+        }
+    },
+
+    _clearDisconnectBanner() {
+        this._wsDisconnectState = null;
+        // Restore the banner to its normal DB-driven state immediately
+        const banner = document.getElementById('era-hyperloom-banner');
+        if (banner) {
+            banner.style.background = '';
+            banner.style.borderColor = '';
+            banner.style.border = '';
+        }
+        const bannerText = document.getElementById('era-hyperloom-banner-text');
+        if (bannerText) bannerText.textContent = 'HYPERLOOM RUNNING ON CLUSTER — DO NOT CLOSE';
     },
 
     handleEvent(ev) {
@@ -2572,6 +2631,8 @@ const Era = {
         if (this._stopInProgress) return;
         this._stopInProgress = true;
         setTimeout(() => { this._stopInProgress = false; }, 2000);
+        this._userInitiatedStop = true;   // suppress disconnect banner on clean stop
+        this._clearDisconnectBanner();    // clear any existing disconnect banner
 
         // 1. Close WebSocket immediately — stops ALL streaming to UI right now
         if (this._ws) {
