@@ -274,7 +274,6 @@ const Era = {
             const timeLabel = now.getHours().toString().padStart(2,'0') + ':' +
                               now.getMinutes().toString().padStart(2,'0') + ':' +
                               now.getSeconds().toString().padStart(2,'0');
-            const h = this._telemetryHistory;
             h.labels.push(timeLabel);
             if (h.labels.length > this._TELEM_MAX_POINTS) h.labels.shift();
 
