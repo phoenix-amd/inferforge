@@ -558,13 +558,17 @@ async def api_preflight(body: PreflightRequest = PreflightRequest()):
             result = {"is_reachable": False, "error": str(result)}
 
         reachable = result.get("is_reachable", False)
-        # Only mark degraded if genuinely unreachable GPU probe AND no existing gpu_count in DB
-        db_gpu_count = conn.execute(
-            "SELECT gpu_count FROM fleet_nodes WHERE id = ?", (info["id"],)
-        ).fetchone()
-        known_gpu_count = (db_gpu_count[0] or 0) if db_gpu_count else 0
+        # Trust the existing DB gpu_count if the SSH probe returned 0
         probed_gpu_count = result.get("gpu_count", 0)
-        effective_gpu_count = probed_gpu_count or known_gpu_count  # trust DB if probe fails
+        effective_gpu_count = probed_gpu_count  # use probe; if 0, check DB below
+        if reachable and probed_gpu_count == 0:
+            try:
+                _r = get_connection().execute(
+                    "SELECT gpu_count FROM fleet_nodes WHERE id = ?", (info["id"],)
+                ).fetchone()
+                effective_gpu_count = (_r[0] or 0) if _r else 0
+            except Exception:
+                effective_gpu_count = 0
         status = "healthy" if reachable else "unreachable"
         if reachable and effective_gpu_count == 0:
             status = "degraded"  # truly no GPUs found by any method
