@@ -686,3 +686,70 @@ async def api_recover_node(node_id: str):
         "recovered": success,
         "output": out.strip(),
     }
+
+
+@router.get("/nodes/ping")
+async def api_ping_nodes():
+    """Quick SSH reachability check for all fleet nodes with running Hyperloom sessions.
+    Called by the frontend every 2 minutes when a job is running.
+    Returns within 8 seconds (ConnectTimeout=6).
+    """
+    conn = get_connection()
+    # Get unique hosts from running Hyperloom sessions
+    running_hosts = conn.execute(
+        "SELECT DISTINCT host FROM hyperloom_sessions WHERE status='running' AND host IS NOT NULL"
+    ).fetchall()
+    host_set = {dict(r)["host"] for r in running_hosts if dict(r).get("host")}
+
+    # Also ping all fleet nodes
+    fleet_rows = conn.execute("SELECT * FROM fleet_nodes").fetchall()
+
+    results = []
+    tasks = []
+    node_info = []
+
+    for r in fleet_rows:
+        r = dict(r)
+        ip = r.get("ip_address")
+        if not ip:
+            continue
+        user = r.get("ssh_user") or "rghaffar"
+        key_path = r.get("ssh_key_path") or "~/.ssh/id_ed25519_moba"
+        key_arg = f"-i {key_path}"
+        node_info.append({"ip": ip, "hostname": r.get("hostname", ip), "has_running_job": ip in host_set})
+
+        async def _ping(ip=ip, user=user, key_arg=key_arg):
+            cmd = (
+                f"ssh {key_arg} -o BatchMode=yes -o ConnectTimeout=6 "
+                f"-o StrictHostKeyChecking=no {user}@{ip} 'echo PONG' 2>/dev/null"
+            )
+            try:
+                proc = await asyncio.create_subprocess_shell(
+                    cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                )
+                stdout_b, _ = await asyncio.wait_for(proc.communicate(), timeout=8)
+                return "PONG" in stdout_b.decode(errors="replace")
+            except Exception:
+                return False
+
+        tasks.append(_ping())
+
+    pong_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    for info, reachable in zip(node_info, pong_results):
+        if isinstance(reachable, Exception):
+            reachable = False
+        results.append({
+            "ip": info["ip"],
+            "hostname": info["hostname"],
+            "reachable": bool(reachable),
+            "has_running_job": info["has_running_job"],
+        })
+
+    unreachable_with_job = [n for n in results if n["has_running_job"] and not n["reachable"]]
+
+    return {
+        "nodes": results,
+        "any_unreachable_with_job": len(unreachable_with_job) > 0,
+        "unreachable_job_nodes": [n["ip"] for n in unreachable_with_job],
+    }

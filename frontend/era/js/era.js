@@ -981,31 +981,72 @@ const Era = {
             const bannerText = document.getElementById('era-hyperloom-banner-text');
             if (banner) {
                 if (!anyRunning) {
-                    // No running sessions — clear everything including disconnect state
+                    // No running sessions — clear all state
                     banner.style.display = 'none';
                     banner.style.background = '';
                     banner.style.border = '';
                     this._wsDisconnectState = null;
-                } else if (this._wsDisconnectState === 'not_launched') {
-                    // WS dropped before Docker started — red error banner
-                    banner.style.display = 'flex';
-                    banner.style.background = 'rgba(255, 40, 40, 0.25)';
-                    banner.style.border = '1px solid #ff3333';
-                    if (bannerText) bannerText.textContent =
-                        '⚠ LAUNCH INTERRUPTED — Connection lost before Docker started. Click STOP ALL to clean up, then retry.';
-                } else if (this._wsDisconnectState === 'launched') {
-                    // WS dropped after Docker started — job is fine, orange info banner
-                    banner.style.display = 'flex';
-                    banner.style.background = 'rgba(255, 140, 0, 0.2)';
-                    banner.style.border = '1px solid #ff8c00';
-                    if (bannerText) bannerText.textContent =
-                        '⚠ CONNECTION LOST — Job is still running on cluster. Reconnect or wait for it to finish, results are 100% valid ✅';
+                    this._lastTimelineSnapshot = null;
+                    this._timelineLastChangedAt = null;
+                    this._nodeUnreachable = false;
+                    if (this._nodePingInterval) { clearInterval(this._nodePingInterval); this._nodePingInterval = null; }
                 } else {
-                    // Normal running state
+                    // Track timeline changes for stale detection
+                    const runSess = data.sessions.find(s => s.status === 'running' && !_allPhasesComplete(s));
+                    const snapshot = JSON.stringify(runSess?.timeline_json || []);
+                    if (snapshot !== this._lastTimelineSnapshot) {
+                        this._lastTimelineSnapshot = snapshot;
+                        this._timelineLastChangedAt = Date.now();
+                        this._nodeUnreachable = false;  // activity = node is up
+                    }
+                    if (!this._timelineLastChangedAt) this._timelineLastChangedAt = Date.now();
+
+                    // Start 2-min node ping loop if not already running
+                    if (!this._nodePingInterval) {
+                        const _doPing = async () => {
+                            try {
+                                const pr = await API.get('/fleet/nodes/ping');
+                                this._nodeUnreachable = !!pr?.any_unreachable_with_job;
+                            } catch (_) {}
+                        };
+                        _doPing();  // immediate first ping
+                        this._nodePingInterval = setInterval(_doPing, 2 * 60 * 1000);
+                    }
+
+                    const staleMs = Date.now() - this._timelineLastChangedAt;
+                    const stale5min  = staleMs > 5 * 60 * 1000;   // 5 min — first warning
+                    const stale8min  = staleMs > 8 * 60 * 1000;   // 8 min — node issue message
+
                     banner.style.display = 'flex';
-                    banner.style.background = '';
-                    banner.style.border = '';
-                    if (bannerText) bannerText.textContent = 'HYPERLOOM RUNNING ON CLUSTER — DO NOT CLOSE';
+
+                    if (this._wsDisconnectState === 'not_launched') {
+                        banner.style.background = 'rgba(255,40,40,0.25)';
+                        banner.style.border = '1px solid #ff3333';
+                        if (bannerText) bannerText.textContent =
+                            '⚠ LAUNCH INTERRUPTED — Connection lost before Docker started. Click STOP ALL to clean up, then retry.';
+                    } else if (this._wsDisconnectState === 'launched') {
+                        banner.style.background = 'rgba(255,140,0,0.2)';
+                        banner.style.border = '1px solid #ff8c00';
+                        if (bannerText) bannerText.textContent =
+                            '⚠ CONNECTION LOST — Job is still running on cluster. Reconnect or wait for it to finish, results are 100% valid ✅';
+                    } else if (this._nodeUnreachable || stale8min) {
+                        // Node confirmed down OR 8+ min stale — critical, action required
+                        banner.style.background = 'rgba(255,40,40,0.25)';
+                        banner.style.border = '1px solid #ff3333';
+                        if (bannerText) bannerText.textContent =
+                            '🔴 NODE ISSUE — Cluster node is not responding. Click STOP ALL to clean up, then restart the job on a healthy node.';
+                    } else if (stale5min) {
+                        // 5–8 min stale — warning, waiting
+                        banner.style.background = 'rgba(255,120,0,0.2)';
+                        banner.style.border = '1px solid #ff7700';
+                        if (bannerText) bannerText.textContent =
+                            '⚠ NO ACTIVITY FOR 5+ MIN — Waiting for cluster response. If this persists, click STOP ALL and retry.';
+                    } else {
+                        // Normal running state
+                        banner.style.background = '';
+                        banner.style.border = '';
+                        if (bannerText) bannerText.textContent = 'HYPERLOOM RUNNING ON CLUSTER — DO NOT CLOSE';
+                    }
                 }
             }
 
@@ -2489,7 +2530,11 @@ const Era = {
     },
 
     _userInitiatedStop: false,
-    _wsDisconnectState: null,   // null | 'not_launched' | 'launched'
+    _wsDisconnectState: null,       // null | 'not_launched' | 'launched'
+    _lastTimelineSnapshot: null,    // JSON of running session timeline — stale detection
+    _timelineLastChangedAt: null,   // ms timestamp when snapshot last changed
+    _nodeUnreachable: false,        // set true by 2-min ping loop
+    _nodePingInterval: null,        // setInterval handle
 
     /** Called when WS closes abnormally — detect whether Docker launched and set flag */
     async _onWsAbnormalClose() {
@@ -2634,6 +2679,8 @@ const Era = {
         setTimeout(() => { this._stopInProgress = false; }, 2000);
         this._userInitiatedStop = true;   // suppress disconnect banner on clean stop
         this._clearDisconnectBanner();    // clear any existing disconnect banner
+        this._nodeUnreachable = false;
+        if (this._nodePingInterval) { clearInterval(this._nodePingInterval); this._nodePingInterval = null; }
 
         // 1. Close WebSocket immediately — stops ALL streaming to UI right now
         if (this._ws) {
