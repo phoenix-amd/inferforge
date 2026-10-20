@@ -257,7 +257,7 @@ async def _ssh_gpu_telemetry(ip: str, user: str, key_path: str | None) -> dict:
     """SSH to a node and run amd-smi to get live GPU util/temp/power."""
     key_arg = f"-i {key_path}" if key_path else "-i ~/.ssh/id_ed25519_moba"
     cmd = (
-        f"ssh {key_arg} -o BatchMode=yes -o ConnectTimeout=5 "
+        f"ssh {key_arg} -o BatchMode=yes -o ConnectTimeout=15 "
         f"-o StrictHostKeyChecking=no {user}@{ip} "
         "'amd-smi metric --json 2>/dev/null || "
         "amd-smi monitor --json 2>/dev/null || "
@@ -468,7 +468,7 @@ async def _ssh_preflight_check(
     )
 
     cmd = (
-        f"ssh {key_arg} -o BatchMode=yes -o ConnectTimeout=5 "
+        f"ssh {key_arg} -o BatchMode=yes -o ConnectTimeout=15 "
         f"-o StrictHostKeyChecking=no {user}@{ip} '{remote_cmd}'"
     )
 
