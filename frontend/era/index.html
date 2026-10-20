@@ -436,11 +436,11 @@
 
       <!-- QUICK COMMAND BUTTONS — ordered by inference workflow -->
       <div class="era-quick-cmds">
-        <button class="era-qcmd" onclick="Era.quickCommand('[GPU DETECTION ONLY — do NOT run memory calculator, do NOT run simulation, do NOT launch Docker] Detect GPUs on ALL cluster nodes (head + workers) via SSH using id_ed25519_moba. Run: amd-smi static --asic to get GPU model and count. Then register each node via POST /api/fleet/nodes/upsert with hostname, ip_address, gpu_platform, gpu_count, hbm_per_gpu_gb=192, status=online. Report the detected GPU model, count, and HBM per node. Stop after fleet registration — do not proceed to memory analysis.')">1· 🔍 Detect GPUs</button>
+        <button class="era-qcmd" onclick="Era.detectGpusCommand()">1· 🔍 Detect GPUs</button>
         <button class="era-qcmd" onclick="Era.memoryCalcCommand()">2· 🧮 Memory Calc</button>
-        <button class="era-qcmd" onclick="Era.quickCommand('Run inference benchmark and report throughput and latency')">3· ⚡ Benchmark</button>
+        <button class="era-qcmd" onclick="Era.benchmarkCommand()">3· ⚡ Benchmark</button>
         <button class="era-qcmd" onclick="Era.autoOptimizeCommand()">4· 🎯 Auto-Optimize</button>
-        <button class="era-qcmd" onclick="Era.quickCommand('Show current GPU utilization and memory usage')">5· 📊 GPU Status</button>
+        <button class="era-qcmd" onclick="Era.gpuStatusCommand()">5· 📊 GPU Status</button>
         <button class="era-qcmd" onclick="Era.deployBestCommand()">6· 🚀 Deploy Best</button>
         <button class="era-qcmd" onclick="Era.stopJob()">7· 🛑 Stop All</button>
         <button class="era-qcmd era-qcmd-reset" onclick="Era.resetDashboard()" title="Reset all panels to clean state">8· 🔄 Reset</button>

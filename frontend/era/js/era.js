@@ -1123,6 +1123,10 @@ const Era = {
                     const runSess = data.sessions.find(s => s.status === 'running');
                     si.classList.add('active');
                     siLabel.textContent = 'OPTIMIZING — ' + (runSess?.model_name?.split('/').pop() || 'cluster job');
+                } else if (this._activeJobLabel) {
+                    // Non-Hyperloom job is running (benchmark, deploy, etc.)
+                    si.classList.add('active');
+                    siLabel.textContent = this._activeJobLabel;
                 } else {
                     // Nothing running — show idle state regardless of past sessions
                     si.classList.remove('active');
@@ -2161,18 +2165,26 @@ const Era = {
             if (latest) this._ignoreDeployBefore = latest.id;
         } catch (_) {}
 
-        this._markSessionActive();
+        this._markSessionActive('6· DEPLOY BEST — running pipeline...');
         this.quickCommand(
             '[RUN TYPE: REAL RUN — launch actual Docker container. NOT simulation.] ' +
             'Deploy the best benchmark configuration. Execute each step ONCE, no repeating:\n' +
             '1) GET /api/benchmark-runs — find best REAL run (ttft_p50 > 0, highest throughput). Exclude sims.\n' +
-            '2) POST /api/deployments {model_name, framework, tp, canary_pct:10} — save deployment ID.\n' +
-            '3) PATCH {state:"building"} immediately after creating. WAIT 2 seconds for UI to render.\n' +
-            '4) SSH id_ed25519_moba: launch Docker (rocm/vllm-dev:nightly, --network=host, --rm, best TP).\n' +
-            '5) PATCH {state:"deploying"} after Docker container starts. WAIT for health check.\n' +
-            '6) Poll /health every 15s until HTTP 200 (max 5 min).\n' +
-            '7) PATCH {state:"canary", canary_pct:10} when healthy.\n' +
-            '8) Smoke test. If pass: PATCH {state:"promoted", canary_pct:100}. If fail: PATCH {state:"rollback"}.\n' +
+            '2) MODEL WEIGHT DISCOVERY — MANDATORY before any Docker launch:\n' +
+            '   Run exactly 3 SSH checks for the model from the best run:\n' +
+            '   Check 1: ls ~/.cache/huggingface/hub/ | grep -i <model>\n' +
+            '   Check 2: ls /mnt/GT_NFS/HF_HOME/hub/ | grep -i <model>\n' +
+            '   Check 3: ls /mnt/GT_WEKA_NFS/new_gt/models/ | grep -i <model>\n' +
+            '   EXACT match → show it as Option 1 and WAIT for user confirmation.\n' +
+            '   SIMILAR match (different variant) → STOP and present Options 1/2/3 to the user. NEVER auto-proceed with a different model.\n' +
+            '   NOT found → STOP and present Options 2/3. Never launch Docker with an unconfirmed model path.\n' +
+            '3) POST /api/deployments {model_name, framework, tp, canary_pct:10} — save deployment ID.\n' +
+            '4) PATCH {state:"building"} immediately after creating. WAIT 2 seconds for UI to render.\n' +
+            '5) SSH id_ed25519_moba: launch Docker (rocm/vllm-dev:nightly, --network=host, --rm, best TP).\n' +
+            '6) PATCH {state:"deploying"} after Docker container starts. WAIT for health check.\n' +
+            '7) Poll /health every 15s until HTTP 200 (max 5 min).\n' +
+            '8) PATCH {state:"canary", canary_pct:10} when healthy.\n' +
+            '9) Smoke test. If pass: PATCH {state:"promoted", canary_pct:100}. If fail: PATCH {state:"rollback"}.\n' +
             'CRITICAL RULES:\n' +
             '- ONLY use PATCH /api/deployments/{id} for state transitions. DO NOT call POST /promote — it will be rejected.\n' +
             '- Pipeline stages are: pending → building → deploying → canary → promoted.\n' +
@@ -2197,6 +2209,7 @@ const Era = {
         const prev = dropdown ? dropdown.value : 'simulation';
         // Force simulation for memory calc regardless of current setting
         if (dropdown) dropdown.value = 'simulation';
+        this._markSessionActive('2· MEMORY CALC — running simulation...');
         this.quickCommand(
             '[RUN TYPE: SIMULATION — memory analysis only. Do NOT launch Docker or SSH for GPU detection. ' +
             'Use GPU info already in the cluster config.] ' +
@@ -2217,7 +2230,7 @@ const Era = {
         // Always force Optimize mode — this button ignores Simulation/Real Run selection
         const runtypeSel = document.getElementById('sel-runtype');
         if (runtypeSel) runtypeSel.value = 'optimize';
-        this._markSessionActive();
+        this._markSessionActive('4· AUTO-OPTIMIZE — Hyperloom running...');
         // Show banner
         const banner = document.getElementById('era-hyperloom-banner');
         if (banner) { banner.style.display = 'flex'; }
@@ -2346,7 +2359,8 @@ const Era = {
 
     _silentMode: false,   // when true, quickCommand hides the text from chat input
 
-    quickCommand(text) {
+    quickCommand(text, jobLabel) {
+        if (jobLabel) this._markSessionActive(jobLabel);
         const input = document.getElementById('chat-input');
         if (input) {
             input.value = text;
@@ -2359,6 +2373,21 @@ const Era = {
             if (input) { input.value = ''; this.autoResize(input); }
             this._silentMode = false;
         }
+    },
+
+    detectGpusCommand() {
+        this.quickCommand(
+            '[GPU DETECTION ONLY — do NOT run memory calculator, do NOT run simulation, do NOT launch Docker] Detect GPUs on ALL cluster nodes (head + workers) via SSH using id_ed25519_moba. Run: amd-smi static --asic to get GPU model and count. Then register each node via POST /api/fleet/nodes/upsert with hostname, ip_address, gpu_platform, gpu_count, hbm_per_gpu_gb=192, status=online. Report the detected GPU model, count, and HBM per node. Stop after fleet registration — do not proceed to memory analysis.',
+            '1· DETECT GPUs — scanning nodes...'
+        );
+    },
+
+    benchmarkCommand() {
+        this.quickCommand('Run inference benchmark and report throughput and latency', '3· BENCHMARK — running...');
+    },
+
+    gpuStatusCommand() {
+        this.quickCommand('Show current GPU utilization and memory usage', '5· GPU STATUS — checking...');
     },
 
     /** Direct memory calculator — calls API without agent, instant results */
@@ -2904,6 +2933,9 @@ const Era = {
 
         Chat.hideThinking();
         document.querySelectorAll('.running-badge').forEach(b => b.remove());
+
+        // Clear the active job label — job is done, banner reverts to idle on next loadSessions poll
+        this._activeJobLabel = null;
     },
 
 
@@ -3008,7 +3040,14 @@ const Era = {
        ============================================================ */
 
     /** Mark session as active (called when user sends first message or Detect GPUs) */
-    _markSessionActive() {
+    _markSessionActive(jobLabel) {
+        if (jobLabel) {
+            this._activeJobLabel = jobLabel;
+            const siLabel = document.getElementById('era-session-label');
+            const si = document.getElementById('era-session-indicator');
+            if (si) si.classList.add('active');
+            if (siLabel) siLabel.textContent = jobLabel;
+        }
         if (!this._sessionActive) {
             this._sessionActive = true;
             sessionStorage.setItem('inferforge_session_active', '1');
