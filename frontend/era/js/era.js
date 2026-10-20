@@ -877,15 +877,15 @@ const Era = {
                 const avgTemp = Math.round(gpus.reduce((s, g) => s + (g.temperature || 0), 0) / gpus.length);
                 const totalPower = Math.round(gpus.reduce((s, g) => s + (g.power || 0), 0));
                 statsHTML = '<div class="era-node-stats">' +
-                    '<span class="era-stat"><span class="era-stat-k">UTIL</span><span class="era-stat-v">' + avgUtil + '%</span></span>' +
-                    '<span class="era-stat"><span class="era-stat-k">TEMP</span><span class="era-stat-v">' + avgTemp + '°C</span></span>' +
-                    '<span class="era-stat"><span class="era-stat-k">PWR</span><span class="era-stat-v">' + totalPower + 'W</span></span>' +
+                    '<span class="era-stat"><span class="era-stat-k">Avg UTIL</span><span class="era-stat-v">' + avgUtil + '%</span></span>' +
+                    '<span class="era-stat"><span class="era-stat-k">Avg Temp</span><span class="era-stat-v">' + avgTemp + '°C</span></span>' +
+                    '<span class="era-stat"><span class="era-stat-k">Total PWR</span><span class="era-stat-v">' + totalPower + 'W</span></span>' +
                     '</div>';
             } else if (gpuCount > 0) {
                 statsHTML = '<div class="era-node-stats">' +
-                    '<span class="era-stat"><span class="era-stat-k">UTIL</span><span class="era-stat-v dim">--</span></span>' +
-                    '<span class="era-stat"><span class="era-stat-k">TEMP</span><span class="era-stat-v dim">--</span></span>' +
-                    '<span class="era-stat"><span class="era-stat-k">PWR</span><span class="era-stat-v dim">--</span></span>' +
+                    '<span class="era-stat"><span class="era-stat-k">Avg UTIL</span><span class="era-stat-v dim">--</span></span>' +
+                    '<span class="era-stat"><span class="era-stat-k">Avg Temp</span><span class="era-stat-v dim">--</span></span>' +
+                    '<span class="era-stat"><span class="era-stat-k">Total PWR</span><span class="era-stat-v dim">--</span></span>' +
                     '</div>';
             }
 

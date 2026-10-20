@@ -447,6 +447,16 @@ async def _ssh_preflight_check(
         "(amd-smi list 2>/dev/null | grep -c '^GPU:') || "
         "(rocm-smi --showproductname 2>/dev/null | grep -c 'GPU\\[') || "
         "(ls /dev/dri/card* 2>/dev/null | wc -l) || echo 0; "
+        # GPU platform — read actual market name from hardware (prevents wrong platform in DB)
+        "echo '---PLATFORM---'; "
+        "amd-smi static --asic 2>/dev/null | grep 'MARKET_NAME' | head -1 | "
+        "awk -F': ' '{print $2}' | tr -d ' ' | head -1 || "
+        "rocm-smi --showproductname 2>/dev/null | grep 'Card series' | head -1 | "
+        "awk -F': ' '{print $2}' | tr -d ' ' || echo 'unknown'; "
+        # GPU HBM per GPU in bytes → GB
+        "echo '---HBM_PER_GPU---'; "
+        "rocm-smi --showmeminfo vram 2>/dev/null | grep 'VRAM Total Memory' | head -1 | "
+        "awk '{print $NF}' | python3 -c 'import sys; b=int(sys.stdin.read().strip()); print(round(b/1024**3))' 2>/dev/null || echo 0; "
         # GPU HBM usage (used/total per GPU in GB)
         "echo '---HBM---'; amd-smi metric --vram 2>/dev/null | "
         "awk '/VRAM Usage/{u=$3} /VRAM Total/{t=$3; printf \"%s/%s\\n\",u,t}' | head -8; "
@@ -497,10 +507,26 @@ async def _ssh_preflight_check(
 
     # Parse GPU count
     try:
-        gpu_str = out.split("---GPU---")[1].split("---STALE---")[0].strip()
+        gpu_str = out.split("---GPU---")[1].split("---PLATFORM---")[0].strip()
         result["gpu_count"] = int(gpu_str) if gpu_str.isdigit() else 0
     except Exception:
         result["gpu_count"] = 0
+
+    # Parse GPU platform (actual hardware market name — prevents wrong platform in DB)
+    try:
+        platform_raw = out.split("---PLATFORM---")[1].split("---HBM_PER_GPU---")[0].strip()
+        # Normalize: "AMDInstinctMI300X" → "MI300X", "AMD Instinct MI300X" → "MI300X"
+        platform = platform_raw.replace("AMDInstinct", "").replace("AMD Instinct ", "").replace(" ", "").strip()
+        result["gpu_platform"] = platform if platform and platform != "unknown" else None
+    except Exception:
+        result["gpu_platform"] = None
+
+    # Parse HBM per GPU in GB
+    try:
+        hbm_str = out.split("---HBM_PER_GPU---")[1].split("---HBM---")[0].strip()
+        result["hbm_per_gpu_gb"] = int(hbm_str) if hbm_str.isdigit() else 0
+    except Exception:
+        result["hbm_per_gpu_gb"] = 0
 
     # Parse stale containers
     try:
@@ -573,11 +599,22 @@ async def api_preflight(body: PreflightRequest = PreflightRequest()):
         if reachable and effective_gpu_count == 0:
             status = "degraded"  # truly no GPUs found by any method
 
-        # Update DB
+        # Update DB — also auto-correct gpu_platform and hbm_per_gpu_gb from hardware
+        update_fields = "status=?, last_probed=?, metadata_json=?"
+        update_vals = [status, now_iso, json.dumps(result)]
+        real_platform = result.get("gpu_platform")
+        real_hbm = result.get("hbm_per_gpu_gb", 0)
+        if real_platform:
+            update_fields += ", gpu_platform=?"
+            update_vals.append(real_platform)
+        if real_hbm > 0:
+            update_fields += ", hbm_per_gpu_gb=?"
+            update_vals.append(real_hbm)
+        update_vals.append(info["id"])
         with conn:
             conn.execute(
-                "UPDATE fleet_nodes SET status=?, last_probed=?, metadata_json=? WHERE id=?",
-                (status, now_iso, json.dumps(result), info["id"]),
+                f"UPDATE fleet_nodes SET {update_fields} WHERE id=?",
+                update_vals,
             )
 
         entry = {
