@@ -1953,13 +1953,14 @@ const Era = {
         const currentIdx = stageOrder.indexOf(currentStage);
         const isError = rawState === 'error' || rawState === 'rollback' || rawState === 'rolled_back';
 
+        const isFullyPromoted = currentStage === 'promoted' && (deploy.canary_pct >= 100 || deploy.canary_pct == null);
         stageOrder.forEach((stage, i) => {
             const el = document.getElementById('stage-' + stage);
             if (!el) return;
             el.classList.remove('completed', 'active', 'error');
             if (isError && i === currentIdx) {
                 el.classList.add('error');
-            } else if (i < currentIdx) {
+            } else if (i < currentIdx || (i === currentIdx && isFullyPromoted)) {
                 el.classList.add('completed');
             } else if (i === currentIdx) {
                 el.classList.add(isError ? 'error' : 'active');
