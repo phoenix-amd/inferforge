@@ -1019,6 +1019,9 @@ const Era = {
 
                     banner.style.display = 'flex';
 
+                    const switchBtn = document.getElementById('era-banner-switch-btn');
+                    if (switchBtn) switchBtn.style.display = 'none';  // hidden by default, shown only in node-issue state
+
                     if (this._wsDisconnectState === 'not_launched') {
                         banner.style.background = 'rgba(255,40,40,0.25)';
                         banner.style.border = '1px solid #ff3333';
@@ -1030,11 +1033,12 @@ const Era = {
                         if (bannerText) bannerText.textContent =
                             '⚠ CONNECTION LOST — Job is still running on cluster. Reconnect or wait for it to finish, results are 100% valid ✅';
                     } else if (this._nodeUnreachable || stale8min) {
-                        // Node confirmed down OR 8+ min stale — critical, action required
+                        // Node confirmed down OR 8+ min stale — critical, show SWITCH NODE button
                         banner.style.background = 'rgba(255,40,40,0.25)';
                         banner.style.border = '1px solid #ff3333';
                         if (bannerText) bannerText.textContent =
-                            '🔴 NODE ISSUE — Cluster node is not responding. Click STOP ALL to clean up, then restart the job on a healthy node.';
+                            '🔴 NODE ISSUE — Cluster node is not responding. Restart on a healthy node or Stop All.';
+                        document.getElementById('era-banner-switch-btn').style.display = '';
                     } else if (stale5min) {
                         // 5–8 min stale — warning, waiting
                         banner.style.background = 'rgba(255,120,0,0.2)';
@@ -2562,6 +2566,64 @@ const Era = {
         }
         const bannerText = document.getElementById('era-hyperloom-banner-text');
         if (bannerText) bannerText.textContent = 'HYPERLOOM RUNNING ON CLUSTER — DO NOT CLOSE';
+        const switchBtn = document.getElementById('era-banner-switch-btn');
+        if (switchBtn) switchBtn.style.display = 'none';
+    },
+
+    /** Called when user clicks SWITCH NODE in the red banner.
+     *  1. Fetches available healthy nodes from the ping endpoint
+     *  2. Shows a confirmation dialog with the target node details
+     *  3. On confirm: Stop All → autoOptimizeCommand() (which calls preflight → picks healthy node)
+     */
+    async offerNodeSwitch() {
+        // Get available nodes
+        let pingResult = null;
+        try {
+            pingResult = await API.post('/fleet/preflight', { clean_stale: false });
+        } catch (_) {
+            pingResult = await API.get('/fleet/nodes/ping').catch(() => null);
+        }
+
+        // Find a healthy node that doesn't have the failed job
+        const failedNodes = (await API.get('/fleet/nodes/ping').catch(() => ({ nodes: [] }))).nodes
+            .filter(n => !n.reachable && n.has_running_job)
+            .map(n => n.ip);
+
+        const healthy = (pingResult?.nodes || [])
+            .filter(n => n.status === 'healthy' || n.reachable !== false)
+            .find(n => !failedNodes.includes(n.ip));
+
+        const bestIp = healthy?.ip || pingResult?.best_node?.ip;
+        const bestFreeRam = healthy?.free_ram_gb || healthy?.available_ram_gb;
+
+        const nodeLabel = bestIp
+            ? `${bestIp}${bestFreeRam ? ' (' + bestFreeRam + ' GB RAM free)' : ''}`
+            : 'best available node';
+
+        const failedLabel = failedNodes.length ? failedNodes.join(', ') : 'the current node';
+
+        const confirmed = confirm(
+            `Node ${failedLabel} is not responding.\n\n` +
+            `Switch to: ${nodeLabel}\n\n` +
+            `This will:\n` +
+            `  1. Stop the failed job and clean up\n` +
+            `  2. Start a fresh optimization on the healthy node\n` +
+            `  3. The job restarts from the beginning (no resume)\n\n` +
+            `Proceed?`
+        );
+
+        if (!confirmed) return;
+
+        // Stop all running jobs
+        this._showToast('Stopping jobs and switching node…', 3000);
+        await API.post('/hyperloom/kill').catch(() => {});
+        this._userInitiatedStop = true;
+        this._nodeUnreachable = false;
+        if (this._nodePingInterval) { clearInterval(this._nodePingInterval); this._nodePingInterval = null; }
+
+        // Small delay then start fresh on the healthy node
+        await new Promise(r => setTimeout(r, 1500));
+        this.autoOptimizeCommand();  // preflight will pick the healthy node automatically
     },
 
     handleEvent(ev) {
