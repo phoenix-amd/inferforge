@@ -527,15 +527,33 @@ const Charts = {
             ctx.fillText(opts.title.toUpperCase(), pad.left, 14);
         }
 
-        // Grid
+        // Compute global min/max across all series for Y-axis labels
+        let yMin = Infinity, yMax = -Infinity;
+        for (const s of series) {
+            if (!s.data.length) continue;
+            yMin = Math.min(yMin, ...s.data);
+            yMax = Math.max(yMax, ...s.data);
+        }
+        if (!isFinite(yMin)) { yMin = 0; yMax = 1; }
+        const yMaxPadded = yMax * 1.1 || 1;
+        const yMinClamped = Math.min(yMin, 0);
+        const yRange = yMaxPadded - yMinClamped || 1;
+
+        // Grid + Y-axis labels
         ctx.strokeStyle = C.grid;
         ctx.lineWidth = 0.5;
+        ctx.font = '9px JetBrains Mono, monospace';
+        ctx.textAlign = 'right';
+        ctx.fillStyle = C.dim;
         for (let i = 0; i <= 4; i++) {
             const y = pad.top + (plotH / 4) * i;
             ctx.beginPath();
             ctx.moveTo(pad.left, y);
             ctx.lineTo(w - pad.right, y);
             ctx.stroke();
+            // Y label: top=yMax, bottom=yMin
+            const val = yMaxPadded - (yRange / 4) * i;
+            ctx.fillText(val >= 1000 ? (val / 1000).toFixed(1) + 'k' : Math.round(val), pad.left - 4, y + 3);
         }
 
         if (!labels.length) return;
@@ -548,8 +566,7 @@ const Charts = {
             // Single point — draw a flat dashed line at that value
             if (data.length === 1) {
                 const val = data[0] || 0;
-                const maxVal = Math.max(val * 1.1, 1);
-                const y = pad.top + plotH - (val / maxVal) * plotH;
+                const y = pad.top + plotH - ((val - yMinClamped) / yRange) * plotH;
                 ctx.setLineDash([4, 4]);
                 ctx.strokeStyle = s.color + '88';
                 ctx.lineWidth = 1.5;
@@ -561,13 +578,9 @@ const Charts = {
                 continue;
             }
 
-            const maxVal = Math.max(...data, 1) * 1.1;
-            const minVal = Math.min(...data, 0);
-            const range = maxVal - minVal || 1;
-
             const points = data.map((v, i) => ({
                 x: pad.left + (plotW / (data.length - 1)) * i,
-                y: pad.top + plotH - ((v - minVal) / range) * plotH,
+                y: pad.top + plotH - ((v - yMinClamped) / yRange) * plotH,
             }));
 
             // Fill

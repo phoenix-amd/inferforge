@@ -453,10 +453,12 @@ async def _ssh_preflight_check(
         "awk -F': ' '{print $2}' | tr -d ' ' | head -1 || "
         "rocm-smi --showproductname 2>/dev/null | grep 'Card series' | head -1 | "
         "awk -F': ' '{print $2}' | tr -d ' ' || echo 'unknown'; "
-        # GPU HBM per GPU in bytes → GB
+        # GPU HBM per GPU in bytes → GB (try amd-smi first, fall back to rocm-smi)
         "echo '---HBM_PER_GPU---'; "
-        "rocm-smi --showmeminfo vram 2>/dev/null | grep 'VRAM Total Memory' | head -1 | "
-        "awk '{print $NF}' | python3 -c 'import sys; b=int(sys.stdin.read().strip()); print(round(b/1024**3))' 2>/dev/null || echo 0; "
+        "{ amd-smi static --vram 2>/dev/null | grep -i 'size' | head -1 | "
+        "awk '{for(i=1;i<=NF;i++) if($i~/^[0-9]+$/ && $(i+1)~/[Mm][Bb]/) {printf \"%d\\n\", int($i/1024); exit}}'; } || "
+        "{ rocm-smi --showmeminfo vram 2>/dev/null | grep 'VRAM Total Memory' | head -1 | "
+        "awk '{print $NF}' | python3 -c 'import sys; b=int(sys.stdin.read().strip()); print(round(b/1024**3))' 2>/dev/null; } || echo 0; "
         # GPU HBM usage (used/total per GPU in GB)
         "echo '---HBM---'; amd-smi metric --vram 2>/dev/null | "
         "awk '/VRAM Usage/{u=$3} /VRAM Total/{t=$3; printf \"%s/%s\\n\",u,t}' | head -8; "
@@ -527,6 +529,19 @@ async def _ssh_preflight_check(
         result["hbm_per_gpu_gb"] = int(hbm_str) if hbm_str.isdigit() else 0
     except Exception:
         result["hbm_per_gpu_gb"] = 0
+
+    # Fallback: derive hbm_per_gpu_gb from the ---HBM--- used/total lines if still 0
+    # amd-smi metric --vram emits "used/total" in MB, so divide by 1024
+    if result["hbm_per_gpu_gb"] == 0:
+        try:
+            hbm_section = out.split("---HBM---")[1].split("---STALE---")[0].strip()
+            for line in hbm_section.splitlines():
+                parts = line.strip().split("/")
+                if len(parts) == 2 and parts[1].isdigit() and int(parts[1]) > 0:
+                    result["hbm_per_gpu_gb"] = round(int(parts[1]) / 1024)
+                    break
+        except Exception:
+            pass
 
     # Parse stale containers
     try:

@@ -854,7 +854,7 @@ docker rm -f hyperloom-optimize 2>/dev/null; docker run -d --name hyperloom-opti
       --gpu-type mi300x \
       --tp <TP> \
       --precision bfloat16 \
-      --max-hours 2.0 \
+      --max-hours 3.0 \
       --critic-mock
   " > ~/hyperloom-run.log 2>&1
 ```
