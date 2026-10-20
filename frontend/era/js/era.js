@@ -532,10 +532,10 @@ const Era = {
             rows += '<tr>' +
                 '<td class="era-hm-node" title="' + nodeKey + '">' + shortIp + '</td>' +
                 cells +
-                '<td class="era-hm-summary">' +
+                '<td class="era-hm-summary" title="Avg util · Avg temp · Total node power (sum of all GPUs)">' +
                 '<span style="color:#00d4ff">' + lastUtil + '%</span> ' +
                 '<span style="color:#ffaa00">' + lastTemp + 'C</span> ' +
-                '<span style="color:#00c896">' + lastPwr + 'W</span>' +
+                '<span style="color:#00c896" title="Total: sum of all ' + (gpus.length || 8) + ' GPUs">' + lastPwr + 'W</span>' +
                 '</td></tr>';
         }
 
@@ -547,7 +547,7 @@ const Era = {
             '<div class="era-hm-wrap">' +
               '<div class="era-hm-left">' +
                 '<table class="era-hm-table">' +
-                  '<thead><tr><th>Node</th>' + gpuHeaders + '<th>Avg</th></tr></thead>' +
+                  '<thead><tr><th>Node</th>' + gpuHeaders + '<th title="Avg util/temp · Total node power">Node Stats</th></tr></thead>' +
                   '<tbody>' + rows + '</tbody>' +
                 '</table>' +
                 '<div class="era-hm-legend-bar">' +
