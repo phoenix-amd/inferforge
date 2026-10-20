@@ -801,9 +801,10 @@ const Era = {
             const card = document.createElement('div');
             card.className = 'era-node-card';
 
-            const isOnline = node.status === 'online';
+            const isOnline = node.status === 'online' || node.status === 'degraded' || node.status === 'healthy';
             const isBusy = node.status === 'busy';
-            const statusClass = isOnline ? 'online' : isBusy ? 'busy' : node.status === 'unknown' ? 'unknown' : 'offline';
+            // 'degraded' = node replies but GPU count probe failed — treat as online with a warning
+            const statusClass = isOnline ? (node.status === 'degraded' ? 'online' : 'online') : isBusy ? 'busy' : node.status === 'unknown' ? 'unknown' : 'offline';
             const gpuCount = (node.gpu_count != null && node.gpu_count > 0) ? node.gpu_count : (node.gpus?.length || 0);
             const gpuModel = node.gpu_model || node.gpu_platform || node.platform || '';
             const hbm = node.hbm_per_gpu || node.hbm_per_gpu_gb || 0;

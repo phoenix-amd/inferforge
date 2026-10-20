@@ -442,8 +442,11 @@ async def _ssh_preflight_check(
     remote_cmd = (
         "echo '---PING---'; echo PONG; "
         "echo '---RAM---'; free -g 2>/dev/null | awk '/^Mem:/{print $2,$4,$7}'; "
-        # GPU count
-        "echo '---GPU---'; amd-smi list 2>/dev/null | grep -c '^GPU:' || echo 0; "
+        # GPU count — try multiple methods for reliability
+        "echo '---GPU---'; "
+        "(amd-smi list 2>/dev/null | grep -c '^GPU:') || "
+        "(rocm-smi --showproductname 2>/dev/null | grep -c 'GPU\\[') || "
+        "(ls /dev/dri/card* 2>/dev/null | wc -l) || echo 0; "
         # GPU HBM usage (used/total per GPU in GB)
         "echo '---HBM---'; amd-smi metric --vram 2>/dev/null | "
         "awk '/VRAM Usage/{u=$3} /VRAM Total/{t=$3; printf \"%s/%s\\n\",u,t}' | head -8; "
@@ -555,9 +558,16 @@ async def api_preflight(body: PreflightRequest = PreflightRequest()):
             result = {"is_reachable": False, "error": str(result)}
 
         reachable = result.get("is_reachable", False)
+        # Only mark degraded if genuinely unreachable GPU probe AND no existing gpu_count in DB
+        db_gpu_count = conn.execute(
+            "SELECT gpu_count FROM fleet_nodes WHERE id = ?", (info["id"],)
+        ).fetchone()
+        known_gpu_count = (db_gpu_count[0] or 0) if db_gpu_count else 0
+        probed_gpu_count = result.get("gpu_count", 0)
+        effective_gpu_count = probed_gpu_count or known_gpu_count  # trust DB if probe fails
         status = "healthy" if reachable else "unreachable"
-        if reachable and result.get("gpu_count", 0) == 0:
-            status = "degraded"
+        if reachable and effective_gpu_count == 0:
+            status = "degraded"  # truly no GPUs found by any method
 
         # Update DB
         with conn:
