@@ -1044,7 +1044,7 @@ const Era = {
                                 }
                             } catch (_) {}
                         };
-                        setTimeout(_doPing, 30 * 1000);  // first ping after 30s (job stabilization)
+                        setTimeout(_doPing, 5 * 60 * 1000);  // first ping after 5min (model loading takes 3-5min, no false positives)
                         this._nodePingInterval = setInterval(_doPing, 2 * 60 * 1000);
                     }
 

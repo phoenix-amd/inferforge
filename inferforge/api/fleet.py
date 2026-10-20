@@ -696,7 +696,7 @@ async def api_recover_node(node_id: str):
 async def api_ping_nodes():
     """Quick SSH reachability check for all fleet nodes with running Hyperloom sessions.
     Called by the frontend every 2 minutes when a job is running.
-    Returns within 8 seconds (ConnectTimeout=6).
+    Returns within 18 seconds (ConnectTimeout=15).
     """
     conn = get_connection()
     # Get unique hosts from running Hyperloom sessions
@@ -724,14 +724,14 @@ async def api_ping_nodes():
 
         async def _ping(ip=ip, user=user, key_arg=key_arg):
             cmd = (
-                f"ssh {key_arg} -o BatchMode=yes -o ConnectTimeout=6 "
+                f"ssh {key_arg} -o BatchMode=yes -o ConnectTimeout=15 "
                 f"-o StrictHostKeyChecking=no {user}@{ip} 'echo PONG' 2>/dev/null"
             )
             try:
                 proc = await asyncio.create_subprocess_shell(
                     cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
                 )
-                stdout_b, _ = await asyncio.wait_for(proc.communicate(), timeout=8)
+                stdout_b, _ = await asyncio.wait_for(proc.communicate(), timeout=20)
                 return "PONG" in stdout_b.decode(errors="replace")
             except Exception:
                 return False
