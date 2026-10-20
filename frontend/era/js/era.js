@@ -959,9 +959,23 @@ const Era = {
             // Sync custom dropdown button label to current selection
 
             // Show/hide the "HYPERLOOM RUNNING" banner based on DB session status.
-            // This survives page reloads — Hyperloom runs on cluster independently of the
-            // agent WebSocket, so we poll the DB directly rather than relying on WS events.
-            const anyRunning = data.sessions.some(s => s.status === 'running');
+            // A session counts as "truly running" only if:
+            //   - status = 'running'  AND
+            //   - NOT all 6 phases are complete (if CLOSE is complete, the job is done
+            //     even if the agent forgot to patch the status to 'completed')
+            const _allPhasesComplete = s => {
+                const tl = s.timeline_json || [];
+                if (tl.length < 6) return false;
+                return ['PRELUDE','ENABLEMENT','FRAMEWORK_AGENT','KERNEL_AGENT','SWEEP','CLOSE']
+                    .every(name => tl.some(p => p.name === name && p.status === 'complete' && p.end_time > 0));
+            };
+            const anyRunning = data.sessions.some(s => s.status === 'running' && !_allPhasesComplete(s));
+
+            // Auto-mark sessions whose phases are all done but status is still 'running'
+            data.sessions.filter(s => s.status === 'running' && _allPhasesComplete(s)).forEach(s => {
+                API.patch('/hyperloom/sessions/' + s.id, { status: 'completed' }).catch(() => {});
+            });
+
             const banner = document.getElementById('era-hyperloom-banner');
             const bannerText = document.getElementById('era-hyperloom-banner-text');
             if (banner) {
