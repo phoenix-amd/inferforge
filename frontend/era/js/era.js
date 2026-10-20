@@ -2576,29 +2576,35 @@ const Era = {
      *  3. On confirm: Stop All → autoOptimizeCommand() (which calls preflight → picks healthy node)
      */
     async offerNodeSwitch() {
-        // Get available nodes
-        let pingResult = null;
-        try {
-            pingResult = await API.post('/fleet/preflight', { clean_stale: false });
-        } catch (_) {
-            pingResult = await API.get('/fleet/nodes/ping').catch(() => null);
+        // Ping all nodes to get current reachability + find healthy alternatives
+        const pingData = await API.get('/fleet/nodes/ping').catch(() => ({ nodes: [] }));
+        const allNodes = pingData?.nodes || [];
+
+        const failedNodes = allNodes.filter(n => !n.reachable && n.has_running_job).map(n => n.ip);
+        const healthyNodes = allNodes.filter(n => n.reachable && !n.has_running_job);
+
+        // Also ask preflight for free RAM info on healthy nodes
+        let preflightData = null;
+        try { preflightData = await API.post('/fleet/preflight', { clean_stale: false }); } catch (_) {}
+        const bestPreflight = preflightData?.best_node;
+
+        // Pick the best healthy node: prefer preflight recommendation, fallback to first healthy
+        const targetNode = healthyNodes.find(n => n.ip === bestPreflight?.ip) || healthyNodes[0];
+        const targetPreflight = (preflightData?.nodes || []).find(n => n.ip === targetNode?.ip);
+
+        const bestIp = targetNode?.ip || bestPreflight?.ip;
+        const bestHostname = targetNode?.hostname || bestPreflight?.hostname || bestIp;
+        const bestFreeRam = targetPreflight?.free_ram_gb;
+        const bestGpus = targetPreflight?.gpu_count;
+
+        if (!bestIp) {
+            alert('No healthy alternative nodes found. All registered nodes may be down.\n\nClick STOP ALL to clean up.');
+            return;
         }
 
-        // Find a healthy node that doesn't have the failed job
-        const failedNodes = (await API.get('/fleet/nodes/ping').catch(() => ({ nodes: [] }))).nodes
-            .filter(n => !n.reachable && n.has_running_job)
-            .map(n => n.ip);
-
-        const healthy = (pingResult?.nodes || [])
-            .filter(n => n.status === 'healthy' || n.reachable !== false)
-            .find(n => !failedNodes.includes(n.ip));
-
-        const bestIp = healthy?.ip || pingResult?.best_node?.ip;
-        const bestFreeRam = healthy?.free_ram_gb || healthy?.available_ram_gb;
-
-        const nodeLabel = bestIp
-            ? `${bestIp}${bestFreeRam ? ' (' + bestFreeRam + ' GB RAM free)' : ''}`
-            : 'best available node';
+        const nodeLabel = `${bestHostname || bestIp}` +
+            (bestFreeRam ? ` · ${bestFreeRam} GB RAM free` : '') +
+            (bestGpus ? ` · ${bestGpus} GPUs` : '');
 
         const failedLabel = failedNodes.length ? failedNodes.join(', ') : 'the current node';
 
