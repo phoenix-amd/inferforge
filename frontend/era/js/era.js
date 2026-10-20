@@ -1067,19 +1067,13 @@ const Era = {
                         banner.style.border = '1px solid #ff8c00';
                         if (bannerText) bannerText.textContent =
                             '⚠ CONNECTION LOST — Job is still running on cluster. Reconnect or wait for it to finish, results are 100% valid ✅';
-                    } else if (this._nodeUnreachable || stale8min) {
-                        // Node confirmed down OR 8+ min stale — critical, show SWITCH NODE button
+                    } else if (this._nodeUnreachable) {
+                        // Node confirmed down by 2+ consecutive ping failures — show SWITCH NODE
                         banner.style.background = 'rgba(255,40,40,0.25)';
                         banner.style.border = '1px solid #ff3333';
                         if (bannerText) bannerText.textContent =
                             '🔴 NODE ISSUE — Cluster node is not responding. Restart on a healthy node or Stop All.';
                         document.getElementById('era-banner-switch-btn').style.display = '';
-                    } else if (stale5min) {
-                        // 5–8 min stale — warning, waiting
-                        banner.style.background = 'rgba(255,120,0,0.2)';
-                        banner.style.border = '1px solid #ff7700';
-                        if (bannerText) bannerText.textContent =
-                            '⚠ NO ACTIVITY FOR 5+ MIN — Waiting for cluster response. If this persists, click STOP ALL and retry.';
                     } else {
                         // Normal running state
                         banner.style.background = '';
