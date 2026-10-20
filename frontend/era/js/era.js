@@ -220,6 +220,20 @@ const Era = {
         try {
             const data = await API.get('/fleet/nodes');
             if (data && data.nodes) {
+                // Purge telemetry history for nodes no longer in the fleet
+                const activeIps = new Set(data.nodes.map(n => n.ip_address || n.ip || n.hostname).filter(Boolean));
+                const h = this._telemetryHistory;
+                for (const key of Object.keys(h.nodes)) {
+                    if (!activeIps.has(key)) {
+                        delete h.nodes[key];
+                        delete h.gpuSnapshot[key];
+                        // Remove per-GPU history entries for this node
+                        for (const gKey of Object.keys(h.gpuHistory)) {
+                            if (gKey.startsWith(key + ':')) delete h.gpuHistory[gKey];
+                        }
+                    }
+                }
+
                 this._renderTelemetry(data.nodes);
                 const nc = document.getElementById('era-node-count');
                 const gc = document.getElementById('era-gpu-count');
@@ -242,6 +256,19 @@ const Era = {
         try {
             const liveData = await API.get('/fleet/nodes/telemetry');
             if (!liveData || !liveData.nodes) return;
+
+            // Only keep history for nodes that are currently in the fleet (live response)
+            const liveIps = new Set(liveData.nodes.map(n => n.ip || n.hostname).filter(Boolean));
+            const h = this._telemetryHistory;
+            for (const key of Object.keys(h.nodes)) {
+                if (!liveIps.has(key)) {
+                    delete h.nodes[key];
+                    delete h.gpuSnapshot[key];
+                    for (const gKey of Object.keys(h.gpuHistory)) {
+                        if (gKey.startsWith(key + ':')) delete h.gpuHistory[gKey];
+                    }
+                }
+            }
 
             const now = new Date();
             const timeLabel = now.getHours().toString().padStart(2,'0') + ':' +
