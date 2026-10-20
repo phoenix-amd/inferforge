@@ -2068,6 +2068,7 @@ const Era = {
             this._newChatThenSend(text, fullContent);
             return;
         }
+        this._pendingJobTitle = null;  // already have a conv — title is locked
 
         if (!this._ws || this._ws.readyState !== WebSocket.OPEN) {
             this.connectWebSocket(State.currentConvId);
@@ -2113,7 +2114,9 @@ const Era = {
 
         const skill = document.getElementById('sel-skill')?.value || '';
         const mode = document.getElementById('sel-mode')?.value || 'autonomous';
-        const data = await API.post('/conversations', { title: displayText.slice(0, 60), skill, mode });
+        const convTitle = this._pendingJobTitle || displayText.slice(0, 60);
+        this._pendingJobTitle = null;
+        const data = await API.post('/conversations', { title: convTitle, skill, mode });
         State.set('currentConvId', data.id);
         Chat.clear();
 
@@ -3043,6 +3046,9 @@ const Era = {
     _markSessionActive(jobLabel) {
         if (jobLabel) {
             this._activeJobLabel = jobLabel;
+            // Strip the "N· " prefix and trailing state text (e.g. "— running...") for a clean history title
+            const cleanTitle = jobLabel.replace(/^\d+·\s*/, '').replace(/\s*—.*$/, '').trim();
+            this._pendingJobTitle = cleanTitle || jobLabel;
             const siLabel = document.getElementById('era-session-label');
             const si = document.getElementById('era-session-indicator');
             if (si) si.classList.add('active');
