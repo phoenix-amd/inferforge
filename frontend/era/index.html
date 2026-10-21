@@ -347,7 +347,30 @@
           </div>
           <div class="era-config-row" id="cfg-custom-model-row" style="display:none">
             <label class="era-config-label">CUSTOM ID</label>
-            <input id="cfg-model-custom" class="era-config-input" placeholder="org/model-name" type="text">
+            <input id="cfg-model-custom" class="era-config-input" placeholder="org/model-name (optional for memory calc)" type="text">
+          </div>
+          <div id="cfg-custom-params-row" style="display:none">
+            <div style="padding:2px 0 4px;font-size:9px;color:#555577;letter-spacing:0.08em">ARCHITECTURE PARAMS (memory calc only)</div>
+            <div class="era-config-row">
+              <label class="era-config-label">PARAMS (B)</label>
+              <input id="cfg-custom-params" class="era-config-input" placeholder="70" type="number" step="0.1" min="0.1">
+            </div>
+            <div class="era-config-row">
+              <label class="era-config-label">LAYERS</label>
+              <input id="cfg-custom-layers" class="era-config-input" placeholder="80" type="number" min="1">
+            </div>
+            <div class="era-config-row">
+              <label class="era-config-label">HEADS</label>
+              <input id="cfg-custom-heads" class="era-config-input" placeholder="64" type="number" min="1">
+            </div>
+            <div class="era-config-row">
+              <label class="era-config-label">KV HEADS</label>
+              <input id="cfg-custom-kv-heads" class="era-config-input" placeholder="8" type="number" min="1">
+            </div>
+            <div class="era-config-row">
+              <label class="era-config-label">HIDDEN DIM</label>
+              <input id="cfg-custom-hidden" class="era-config-input" placeholder="8192" type="number" min="1">
+            </div>
           </div>
           <div class="era-config-row">
             <label class="era-config-label">MODEL PATH</label>

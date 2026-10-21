@@ -56,11 +56,27 @@ def _row_to_node(r) -> dict:
             r["metadata_json"] = json.loads(r["metadata_json"])
         except (json.JSONDecodeError, TypeError):
             pass
+    # Ensure HBM and GPU count are correct for known platforms — prevents stale/wrong values from DB
+    hbm = r.get("hbm_per_gpu_gb", 0) or 0
+    gpu_count = r.get("gpu_count", 0) or 0
+    platform = r.get("gpu_platform", "")
+    _KNOWN_HBM = {
+        "MI210": 64, "MI250": 128, "MI250X": 128,
+        "MI300X": 192, "MI325X": 256, "MI350X": 288,
+        "MI355X": 288, "MI450X": 512, "MI455X": 512,
+    }
+    if hbm <= 0 or (platform == "MI300X" and hbm != 192):
+        hbm = _KNOWN_HBM.get(platform, hbm)
+    # GPU count sanity: MI300X nodes have 8 GPUs — never show 1 from a bad probe
+    if platform and platform.startswith("MI") and 0 < gpu_count < 8:
+        gpu_count = 8
     return {
         **r,
         "ip":        r.get("ip_address") or r.get("hostname", ""),
-        "gpu_model": r.get("gpu_platform") or "--",
-        "hbm_per_gpu": r.get("hbm_per_gpu_gb", 0),
+        "gpu_model": platform or "--",
+        "gpu_count": gpu_count,
+        "hbm_per_gpu_gb": hbm,
+        "hbm_per_gpu": hbm,
         "gpus":      [],
     }
 
@@ -442,21 +458,30 @@ async def _ssh_preflight_check(
     remote_cmd = (
         "echo '---PING---'; echo PONG; "
         "echo '---RAM---'; free -g 2>/dev/null | awk '/^Mem:/{print $2,$4,$7}'; "
-        # GPU count — try multiple methods for reliability
+        # GPU count — prefer amd-smi JSON (most reliable), fall back to amd-smi list, then rocm-smi unique GPU IDs
         "echo '---GPU---'; "
+        "(amd-smi metric --json 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); "
+        "items=d.get(\"gpu_data\",d) if isinstance(d,dict) else d; print(len(items))' 2>/dev/null) || "
         "(amd-smi list 2>/dev/null | grep -c '^GPU:') || "
-        "(rocm-smi --showproductname 2>/dev/null | grep -c 'GPU\\[') || "
-        "(ls /dev/dri/card* 2>/dev/null | wc -l) || echo 0; "
+        "(rocm-smi --showproductname 2>/dev/null | grep 'Card Series' | wc -l) || "
+        "echo 0; "
         # GPU platform — read actual market name from hardware (prevents wrong platform in DB)
         "echo '---PLATFORM---'; "
         "amd-smi static --asic 2>/dev/null | grep 'MARKET_NAME' | head -1 | "
         "awk -F': ' '{print $2}' | tr -d ' ' | head -1 || "
         "rocm-smi --showproductname 2>/dev/null | grep 'Card series' | head -1 | "
         "awk -F': ' '{print $2}' | tr -d ' ' || echo 'unknown'; "
-        # GPU HBM per GPU in bytes → GB (try amd-smi first, fall back to rocm-smi)
+        # GPU HBM per GPU in MB → GB (try amd-smi static, then JSON, then rocm-smi)
         "echo '---HBM_PER_GPU---'; "
         "{ amd-smi static --vram 2>/dev/null | grep -i 'size' | head -1 | "
-        "awk '{for(i=1;i<=NF;i++) if($i~/^[0-9]+$/ && $(i+1)~/[Mm][Bb]/) {printf \"%d\\n\", int($i/1024); exit}}'; } || "
+        "awk '{for(i=1;i<=NF;i++) if($i~/^[0-9]+$/ && $(i+1)~/[Mm][Bb]/) {printf \"%d\\n\", int(($i+512)/1024); exit}}'; } || "
+        "{ amd-smi metric --json 2>/dev/null | python3 -c '"
+        "import json,sys; d=json.load(sys.stdin); "
+        "items=d.get(\"gpu_data\",d) if isinstance(d,dict) else d; "
+        "g=items[0]; vram=g.get(\"vram\",g.get(\"memory\",{})); "
+        "total=vram.get(\"vram_total\",vram.get(\"total\",{})); "
+        "v=total.get(\"value\",total) if isinstance(total,dict) else total; "
+        "print(round(int(v)/1024)) if v else print(0)' 2>/dev/null; } || "
         "{ rocm-smi --showmeminfo vram 2>/dev/null | grep 'VRAM Total Memory' | head -1 | "
         "awk '{print $NF}' | python3 -c 'import sys; b=int(sys.stdin.read().strip()); print(round(b/1024**3))' 2>/dev/null; } || echo 0; "
         # GPU HBM usage (used/total per GPU in GB)
@@ -507,10 +532,16 @@ async def _ssh_preflight_check(
         result["free_ram_gb"] = 0
         result["available_ram_gb"] = 0
 
-    # Parse GPU count
+    # Parse GPU count — sanity-check: /dev/dri/card* includes render nodes (8 per GPU on MI300X),
+    # rocm-smi grep can over-count.  Valid physical GPU counts are 1-8 per node.
     try:
         gpu_str = out.split("---GPU---")[1].split("---PLATFORM---")[0].strip()
-        result["gpu_count"] = int(gpu_str) if gpu_str.isdigit() else 0
+        gpu_count = int(gpu_str) if gpu_str.isdigit() else 0
+        # Clamp obvious over-counts: MI300X nodes have max 8 GPUs.
+        # Values like 64 (/dev/dri), 72 (rocm-smi lines) are clearly wrong.
+        if gpu_count > 8:
+            gpu_count = 8
+        result["gpu_count"] = gpu_count
     except Exception:
         result["gpu_count"] = 0
 
@@ -530,7 +561,7 @@ async def _ssh_preflight_check(
     except Exception:
         result["hbm_per_gpu_gb"] = 0
 
-    # Fallback: derive hbm_per_gpu_gb from the ---HBM--- used/total lines if still 0
+    # Fallback 1: derive hbm_per_gpu_gb from the ---HBM--- used/total lines if still 0
     # amd-smi metric --vram emits "used/total" in MB, so divide by 1024
     if result["hbm_per_gpu_gb"] == 0:
         try:
@@ -542,6 +573,15 @@ async def _ssh_preflight_check(
                     break
         except Exception:
             pass
+
+    # Fallback 2: use gpu_specs.json lookup if platform is known but HBM detection failed
+    if result["hbm_per_gpu_gb"] == 0 and result.get("gpu_platform"):
+        _KNOWN_HBM = {
+            "MI210": 64, "MI250": 128, "MI250X": 128,
+            "MI300X": 192, "MI325X": 256, "MI350X": 288,
+            "MI355X": 288, "MI450X": 512, "MI455X": 512,
+        }
+        result["hbm_per_gpu_gb"] = _KNOWN_HBM.get(result["gpu_platform"], 0)
 
     # Parse stale containers
     try:
@@ -599,9 +639,22 @@ async def api_preflight(body: PreflightRequest = PreflightRequest()):
             result = {"is_reachable": False, "error": str(result)}
 
         reachable = result.get("is_reachable", False)
-        # Trust the existing DB gpu_count if the SSH probe returned 0
+        # Trust the existing DB gpu_count if the SSH probe returned a suspicious value
         probed_gpu_count = result.get("gpu_count", 0)
-        effective_gpu_count = probed_gpu_count  # use probe; if 0, check DB below
+        effective_gpu_count = probed_gpu_count
+        # GUARD: MI300X nodes have 8 GPUs — never trust a probe that says < 2
+        # (happens when amd-smi JSON returns partial data during GPU load)
+        if reachable and 0 < probed_gpu_count < 2:
+            try:
+                _r = get_connection().execute(
+                    "SELECT gpu_count FROM fleet_nodes WHERE id = ?", (info["id"],)
+                ).fetchone()
+                db_count = (_r[0] or 0) if _r else 0
+                if db_count >= 2:
+                    effective_gpu_count = db_count  # keep DB value, probe was wrong
+                    result["gpu_count"] = db_count  # fix the result too so metadata_json is correct
+            except Exception:
+                pass
         if reachable and probed_gpu_count == 0:
             try:
                 _r = get_connection().execute(

@@ -69,12 +69,15 @@ const Era = {
         this.initKeyboard();
         Chat.initScrollTracking();
 
-        // Wire custom model toggle
+        // Wire custom model toggle — show both custom ID and architecture param fields
         const modelSel = document.getElementById('cfg-model');
         if (modelSel) {
             modelSel.addEventListener('change', () => {
+                const isCustom = modelSel.value === 'custom';
                 const row = document.getElementById('cfg-custom-model-row');
-                if (row) row.style.display = modelSel.value === 'custom' ? '' : 'none';
+                const paramsRow = document.getElementById('cfg-custom-params-row');
+                if (row) row.style.display = isCustom ? '' : 'none';
+                if (paramsRow) paramsRow.style.display = isCustom ? '' : 'none';
             });
         }
 
@@ -974,15 +977,18 @@ const Era = {
             if (data.sessions.length > 0) {
                 const previousId = sel.value;
                 const stillExists = previousId && data.sessions.some(s => s.id === previousId);
-                if (!stillExists) {
-                    // No valid selection — default to most recent session
-                    sel.value = data.sessions[0].id;
-                    requestAnimationFrame(() => this.loadTimeline());
-                } else {
-                    // Keep user's current selection — just reload the timeline quietly
-                    // (don't re-select; user may have manually picked an older session)
-                    requestAnimationFrame(() => this.loadTimeline());
+                const running = data.sessions.find(s => s.status === 'running');
+
+                // Always switch to a running session if one exists and current
+                // selection is empty, gone, or no longer running (e.g. superseded).
+                const prevStatus = previousId && data.sessions.find(s => s.id === previousId)?.status;
+                if (running && (!stillExists || prevStatus !== 'running')) {
+                    sel.value = running.id;
+                } else if (!stillExists) {
+                    sel.value = '';  // stay on "Select Session" — user can pick manually
                 }
+                // else: keep user's current selection (it's still valid and running or they chose it)
+                if (sel.value) requestAnimationFrame(() => this.loadTimeline());
             }
 
             // Sync custom dropdown button label to current selection
@@ -1000,11 +1006,27 @@ const Era = {
             };
             const anyRunning = data.sessions.some(s => s.status === 'running' && !_allPhasesComplete(s));
 
+            // Auto-sync timeline from cluster every 5th poll (~2.5 min) for running sessions
+            this._probeCycle = (this._probeCycle || 0) + 1;
+            if (anyRunning && this._probeCycle % 5 === 0) {
+                const runningSess = data.sessions.find(s => s.status === 'running' && !_allPhasesComplete(s));
+                if (runningSess) {
+                    API.post('/hyperloom/sessions/' + runningSess.id + '/probe-phase').then(() => {
+                        const sel = document.getElementById('timeline-session-select');
+                        if (sel && sel.value === runningSess.id) this.loadTimeline();
+                    }).catch(() => {});  // fail silently — timeline just stays stale
+                }
+            }
+
             // Auto-mark sessions whose phases are all done but status is still 'running'
             data.sessions.filter(s => s.status === 'running' && _allPhasesComplete(s)).forEach(s => {
                 const now = new Date().toISOString();
                 API.patch('/hyperloom/sessions/' + s.id, {
                     status: 'completed', stop_reason: 'sweep_done', ended_at: now
+                }).then(() => {
+                    // Force timeline reload so results table renders immediately
+                    const sel = document.getElementById('timeline-session-select');
+                    if (sel && sel.value) this.loadTimeline();
                 }).catch(() => {});
             });
 
@@ -1020,22 +1042,20 @@ const Era = {
             const bannerText = document.getElementById('era-hyperloom-banner-text');
             if (banner) {
                 if (!anyRunning) {
-                    // Show green completion banner briefly, then hide
+                    banner.classList.remove('banner-done');  // reset first
                     if (justFinished && !this._completionBannerShown) {
+                        // Show solid green "JOB COMPLETE" banner — only when job JUST finished (within 5 min)
+                        // Does NOT show on page refresh — only during the session where the job completed
                         this._completionBannerShown = true;
                         banner.style.display = 'flex';
-                        banner.style.background = 'rgba(0,200,100,0.2)';
-                        banner.style.border = '1px solid #00c864';
-                        if (bannerText) bannerText.textContent =
-                            '✅ OPTIMIZATION COMPLETE — ' +
-                            (lastCompleted.model_name?.split('/').pop() || 'Job') +
-                            ' | Gain: +' + (lastCompleted.outcome_gain_pct || 0).toFixed(2) + '%';
-                        setTimeout(() => {
-                            banner.style.display = 'none';
-                            banner.style.background = '';
-                            banner.style.border = '';
-                        }, 10000);
-                    } else if (!justFinished) {
+                        banner.classList.add('banner-done');
+                        banner.style.background = '';
+                        banner.style.border = '';
+                        const model = lastCompleted?.model_name?.split('/').pop() || 'Job';
+                        const gain = lastCompleted?.outcome_gain_pct;
+                        const gainStr = gain != null ? ' | +' + gain.toFixed(2) + '% throughput' : '';
+                        if (bannerText) bannerText.textContent = 'JOB COMPLETE — ' + model + gainStr;
+                    } else {
                         banner.style.display = 'none';
                         banner.style.background = '';
                         banner.style.border = '';
@@ -1054,8 +1074,24 @@ const Era = {
                         this._timelineLastChangedAt = Date.now();
                         this._nodeUnreachable = false;  // activity = node is up
                     }
+
+                    // Auto-recover from "LAUNCH INTERRUPTED" if the job is actually running:
+                    // Check if PRELUDE has started (timeline advancing) or GPUs are active (telemetry shows util > 0)
+                    if (this._wsDisconnectState) {
+                        const tl = runSess?.timeline_json || [];
+                        const prelude = tl.find(p => p.name === 'PRELUDE');
+                        const hasTimeline = prelude && prelude.start_time > 0;
+                        const h = this._telemetryHistory || {};
+                        const hasGpuActivity = Object.values(h.gpuSnapshot || {}).some(
+                            gpus => gpus.some(g => g.utilization > 5 || g.power > 100)
+                        );
+                        if (hasTimeline || hasGpuActivity) {
+                            this._wsDisconnectState = 'recovered';  // mark as recovered — show green recovery banner
+                        }
+                    }
                     if (!this._timelineLastChangedAt) this._timelineLastChangedAt = Date.now();
-                    this._completionBannerShown = false;  // reset so next completion shows green banner
+                    this._completionBannerDismissed = false;  // reset so next completion shows green banner
+                    banner.classList.remove('banner-done');
 
                     // Start 2-min node ping loop if not already running
                     if (!this._nodePingInterval) {
@@ -1092,6 +1128,15 @@ const Era = {
                         banner.style.border = '1px solid #ff3333';
                         if (bannerText) bannerText.textContent =
                             '⚠ LAUNCH INTERRUPTED — Connection lost before Docker started. Click STOP ALL to clean up, then retry.';
+                    } else if (this._wsDisconnectState === 'recovered') {
+                        // GPU activity detected after WS drop — job is fine, show recovery + IGNORE btn
+                        banner.style.background = 'rgba(0,200,100,0.15)';
+                        banner.style.border = '1px solid #00c896';
+                        if (bannerText) bannerText.innerHTML =
+                            '✅ RECOVERED — GPUs active, job running normally. ' +
+                            '<button onclick="Era._clearDisconnectBanner()" style="margin-left:8px;padding:1px 10px;' +
+                            'font-size:9px;font-family:var(--mono);letter-spacing:0.06em;background:rgba(0,200,150,0.2);' +
+                            'border:1px solid #00c896;border-radius:3px;color:#00c896;cursor:pointer">DISMISS</button>';
                     } else if (this._wsDisconnectState === 'launched') {
                         banner.style.background = 'rgba(255,140,0,0.2)';
                         banner.style.border = '1px solid #ff8c00';
@@ -1127,6 +1172,9 @@ const Era = {
                     // Non-Hyperloom job is running (benchmark, deploy, etc.)
                     si.classList.add('active');
                     siLabel.textContent = this._activeJobLabel;
+                } else if (justFinished && this._completionBannerShown) {
+                    si.classList.add('active');
+                    siLabel.textContent = 'COMPLETE — ' + (lastCompleted.model_name?.split('/').pop() || 'Job');
                 } else {
                     // Nothing running — show idle state regardless of past sessions
                     si.classList.remove('active');
@@ -1299,23 +1347,34 @@ const Era = {
         return allPhaseNames.map(name => {
             const p = phaseMap[name];
             if (!p || !p.start_time || p.start_time <= 0) {
-                // Pending phase — show as a thin placeholder
+                // If session is done, pending phases were skipped (not just waiting)
+                const isSkip = p?.status === 'skipped' || sessionDone;
                 return {
                     label: name,
                     start: 0,
                     end: 0,
                     color: phaseColors[name] || '#333355',
-                    status: 'pending',
-                    _pending: true,
+                    status: isSkip ? 'skipped' : 'pending',
+                    _pending: !isSkip,
+                };
+            }
+            if (p.status === 'skipped') {
+                return {
+                    label: name,
+                    start: 0,
+                    end: 0,
+                    color: phaseColors[name] || '#333355',
+                    status: 'skipped',
                 };
             }
             // Clamp start_time: never let a phase start before PRELUDE (bad agent patches)
             const safeStart = preludeAnchor > 0 ? Math.max(p.start_time, preludeAnchor) : p.start_time;
             let endTime;
-            if (p.end_time > 0) {
+            if (p.status === 'running' && !sessionDone) {
+                // Running phase — always use live clock, never a stale backend end_time
+                endTime = nowSec;
+            } else if (p.end_time > 0) {
                 endTime = Math.max(p.end_time, safeStart);
-            } else if (p.status === 'running' && !sessionDone) {
-                endTime = nowSec;  // still ticking
             } else {
                 // Session is done OR phase is not running — use latest known time
                 const fallbackEnd = Math.max(latestEnd, safeStart + (p.duration || 60));
@@ -1388,6 +1447,46 @@ const Era = {
                     rowHeight: 44,
                 });
             }
+
+            // ── Contextual notes below the chart ──
+            let notesEl = document.getElementById('timeline-phase-notes');
+            if (!notesEl) {
+                notesEl = document.createElement('div');
+                notesEl.id = 'timeline-phase-notes';
+                notesEl.style.cssText = 'font:11px/1.6 "JetBrains Mono",monospace;color:#666688;padding:4px 12px 8px;';
+                const body = document.getElementById('timeline-body');
+                if (body && canvas) body.insertBefore(notesEl, canvas.nextSibling);
+            }
+            const notes = [];
+            const phases = data.phases || [];
+            const skipped = phases.filter(p => p.status === 'skipped').map(p => p.name);
+            // Also count pending phases as skipped if session is done
+            if (sessionDone) {
+                phases.filter(p => p.status === 'pending').forEach(p => {
+                    if (!skipped.includes(p.name)) skipped.push(p.name);
+                });
+            }
+            if (skipped.length) {
+                // Group by reason
+                const kbSkipped = skipped.filter(n => n === 'ENABLEMENT');
+                const budgetSkipped = skipped.filter(n => n !== 'ENABLEMENT');
+                if (kbSkipped.length) {
+                    notes.push('⏭ <b>' + kbSkipped.join(', ') + '</b> skipped — Recipe KB warm hit applied prior optimizations');
+                }
+                if (budgetSkipped.length) {
+                    notes.push('⏭ <b>' + budgetSkipped.join(', ') + '</b> skipped — time budget exhausted');
+                }
+            }
+            // Detect PRELUDE restart (duration much shorter than wall-clock gap)
+            const prelude = phases.find(p => p.name === 'PRELUDE');
+            const fw = phases.find(p => p.name === 'FRAMEWORK_AGENT');
+            if (prelude && fw && prelude.end_time > 0 && fw.start_time > 0) {
+                const gap = fw.start_time - prelude.start_time;
+                if (gap > 0 && prelude.duration > 0 && gap > prelude.duration * 1.5) {
+                    notes.push('🔄 PRELUDE restarted mid-session — total wall time includes re-init');
+                }
+            }
+            notesEl.innerHTML = notes.length ? notes.join('<br>') : '';
         } catch (_) {}
     },
 
@@ -1415,7 +1514,8 @@ const Era = {
             }
 
             const gain = session.outcome_gain_pct;
-            const oj = session.outcome_json || {};
+            let oj = session.outcome_json || {};
+            if (typeof oj === 'string') try { oj = JSON.parse(oj); } catch(_) { oj = {}; }
             const bl = oj.baseline || {};
             const opt = oj.optimized || {};
             const flags = oj.winning_flags || [];
@@ -1427,7 +1527,8 @@ const Era = {
             const expectedPhases = ['PRELUDE','ENABLEMENT','FRAMEWORK_AGENT','KERNEL_AGENT','SWEEP','CLOSE'];
             const allPhasesComplete = expectedPhases.every(p => completedPhases.includes(p));
             const lastCompleted = completedPhases.length ? completedPhases[completedPhases.length - 1] : null;
-            const isInterrupted = !allPhasesComplete || !gain || gain <= 0;
+            // Show full results table when detail data exists OR positive gain — never show INTERRUPTED for successful runs
+            const isInterrupted = !hasDetail && (!gain || gain <= 0);
 
             cmp.style.cssText = 'flex-shrink:0;border-top:2px solid #2a2a44;font-family:var(--mono);font-size:12px;color:#c0c0d8;';
 
@@ -1577,7 +1678,8 @@ const Era = {
         const s = this._lastComparisonSession;
         if (!s) return;
 
-        const oj = s.outcome_json || {};
+        let oj = s.outcome_json || {};
+        if (typeof oj === 'string') try { oj = JSON.parse(oj); } catch(_) { oj = {}; }
         const bl = oj.baseline || {};
         const opt = oj.optimized || {};
         const gain = s.outcome_gain_pct;
@@ -1931,6 +2033,18 @@ const Era = {
             }
 
             this._renderPipeline(latest);
+
+            // Update banner label to reflect live deploy state
+            const dState = latest.state || '';
+            const terminalStates = ['promoted', 'stopped', 'rollback', 'rolled_back', 'error'];
+            if (terminalStates.includes(dState)) {
+                this._activeJobLabel = null;
+            } else if (['building', 'deploying', 'canary'].includes(dState)) {
+                const lbl = dState === 'canary'
+                    ? `6· DEPLOY BEST — canary ${latest.canary_pct ?? 10}%`
+                    : `6· DEPLOY BEST — ${dState}...`;
+                this._activeJobLabel = lbl;
+            }
         } catch (_) {}
     },
 
@@ -2068,7 +2182,11 @@ const Era = {
             this._newChatThenSend(text, fullContent);
             return;
         }
-        this._pendingJobTitle = null;  // already have a conv — title is locked
+        // If a job title is pending, update the existing conversation's title
+        if (this._pendingJobTitle) {
+            API.patch('/conversations/' + State.currentConvId, { title: this._pendingJobTitle }).catch(() => {});
+        }
+        this._pendingJobTitle = null;
 
         if (!this._ws || this._ws.readyState !== WebSocket.OPEN) {
             this.connectWebSocket(State.currentConvId);
@@ -2261,33 +2379,8 @@ const Era = {
 
         if (bannerText) bannerText.textContent = 'HYPERLOOM RUNNING ON CLUSTER — DO NOT CLOSE';
 
-        // Create a session record immediately so the timeline shows something
-        try {
-            const modelId = cfg.model === 'custom' ? (cfg.modelCustom || '') : (cfg.model || 'meta-llama/Llama-3.1-70B-Instruct');
-            const sid = await API.post('/hyperloom/sessions', {
-                model_name: modelId,
-                framework_name: 'vllm',
-                host: targetHost,
-                gpu_type: 'MI300X',
-                tp: 8,
-                status: 'running',
-                timeline_json: [
-                    { name: 'PRELUDE',         start_time: 0, end_time: 0, duration: 0, status: 'running' },
-                    { name: 'ENABLEMENT',      start_time: 0, end_time: 0, duration: 0, status: 'pending' },
-                    { name: 'FRAMEWORK_AGENT', start_time: 0, end_time: 0, duration: 0, status: 'pending' },
-                    { name: 'KERNEL_AGENT',    start_time: 0, end_time: 0, duration: 0, status: 'pending' },
-                    { name: 'SWEEP',           start_time: 0, end_time: 0, duration: 0, status: 'pending' },
-                    { name: 'CLOSE',           start_time: 0, end_time: 0, duration: 0, status: 'pending' },
-                ],
-            });
-            if (sid && sid.id) {
-                // Refresh timeline panel
-                await this.loadSessions();
-                const sel = document.getElementById('timeline-session-select');
-                if (sel) sel.value = sid.id;
-                this.loadTimeline();
-            }
-        } catch (_) {}
+        // Session creation is handled by the agent (STEP 3 in the prompt).
+        // Do NOT create a session here — it causes ghost sessions when the agent creates its own.
 
         this.quickCommand(
             '[RUN TYPE: OPTIMIZE — Hyperloom kernel optimization via Docker on cluster. Use SSH key id_ed25519_moba.]\n' +
@@ -2395,7 +2488,7 @@ const Era = {
 
     /** Direct memory calculator — calls API without agent, instant results */
     async runMemoryCalc() {
-        this._markSessionActive();
+        this._markSessionActive('2· MEMORY CALC — running simulation...');
 
         // Get config
         const raw = localStorage.getItem('inferforge_era_config');
@@ -2404,9 +2497,10 @@ const Era = {
             return;
         }
         const cfg = JSON.parse(raw);
-        const modelId = cfg.model === 'custom' ? (cfg.modelCustom || '') : (cfg.model || '');
-        if (!modelId) {
-            this._showToast('SELECT A MODEL FIRST');
+        const isCustomParams = cfg.model === 'custom' && cfg.customParams;
+        const modelId = cfg.model === 'custom' ? (cfg.modelCustom || (isCustomParams ? 'Custom Model' : '')) : (cfg.model || '');
+        if (!modelId && !isCustomParams) {
+            this._showToast('SELECT A MODEL OR ENTER CUSTOM PARAMS');
             return;
         }
 
@@ -2463,14 +2557,25 @@ const Era = {
         try {
             const dtypeMap = { bfloat16: 'bf16', float16: 'fp16', float32: 'fp32' };
             const dtype = dtypeMap[cfg.weightDtype] || cfg.weightDtype || 'bf16';
-            const result = await API.post('/calculate', {
-                model: modelKey,
+            const reqBody = {
+                model: modelKey || '__custom__',
                 gpu: gpuPlatform,
                 gpu_count: gpuCount,
                 dtype: dtype,
                 kv_dtype: (!cfg.kvDtype || cfg.kvDtype === 'same') ? null : cfg.kvDtype,
                 seq_len: parseInt(cfg.seqLen) || 4096,
-            });
+            };
+            // Custom model — pass architecture params directly (skips registry)
+            if (isCustomParams) {
+                reqBody.custom_params = {
+                    params_b: parseFloat(cfg.customParams),
+                    layers: parseInt(cfg.customLayers) || 80,
+                    heads: parseInt(cfg.customHeads) || 64,
+                    kv_heads: parseInt(cfg.customKvHeads) || 8,
+                    hidden: parseInt(cfg.customHidden) || 8192,
+                };
+            }
+            const result = await API.post('/calculate', reqBody);
 
             // Format full report (matches agent report_format.md style)
             const r = result;
@@ -2640,18 +2745,21 @@ const Era = {
     _nodeUnreachableCount: 0,       // consecutive failure counter — prevents false positives
     _nodePingInterval: null,        // setInterval handle
 
-    /** Called when WS closes abnormally — detect whether Docker launched and set flag */
+    /** Called when WS closes abnormally — detect whether Docker launched and set flag.
+     *  Default to 'launched' (optimistic) — the 30s session poll will auto-correct
+     *  via GPU telemetry and timeline checks. Showing "RUNNING ON CLUSTER" for a job
+     *  that didn't launch is far less harmful than showing "LAUNCH INTERRUPTED" for
+     *  a job that's running fine at 68% GPU utilization. */
     async _onWsAbnormalClose() {
         try {
             const data = await API.get('/hyperloom/sessions');
             const running = (data?.sessions || []).find(s => s.status === 'running');
             if (!running) return;  // no running session — loadSessions will handle banner
-            const prelude = (running.timeline_json || []).find(p => p.name === 'PRELUDE');
-            // If PRELUDE has a real start_time > 0, Docker launched and the agent confirmed it
-            const dockerLaunched = prelude && prelude.start_time > 0;
-            this._wsDisconnectState = dockerLaunched ? 'launched' : 'not_launched';
+            // Default to 'launched' — the periodic poll will verify via telemetry
+            this._wsDisconnectState = 'launched';
         } catch (_) {
-            this._wsDisconnectState = 'not_launched';
+            // API unreachable — still default to optimistic; poll will correct
+            this._wsDisconnectState = 'launched';
         }
     },
 
@@ -2937,8 +3045,8 @@ const Era = {
         Chat.hideThinking();
         document.querySelectorAll('.running-badge').forEach(b => b.remove());
 
-        // Clear the active job label — job is done, banner reverts to idle on next loadSessions poll
-        this._activeJobLabel = null;
+        // Clear the active job label — but preserve it if deploy pipeline is still running
+        if (!this._deployTriggered) this._activeJobLabel = null;
     },
 
 
@@ -3190,6 +3298,11 @@ const Era = {
             key:        document.getElementById('cfg-key')?.value.trim() || '',
             model:      document.getElementById('cfg-model')?.value || '',
             modelCustom: document.getElementById('cfg-model-custom')?.value.trim() || '',
+            customParams: document.getElementById('cfg-custom-params')?.value.trim() || '',
+            customLayers: document.getElementById('cfg-custom-layers')?.value.trim() || '',
+            customHeads:  document.getElementById('cfg-custom-heads')?.value.trim() || '',
+            customKvHeads: document.getElementById('cfg-custom-kv-heads')?.value.trim() || '',
+            customHidden: document.getElementById('cfg-custom-hidden')?.value.trim() || '',
             modelPath:  document.getElementById('cfg-model-path')?.value.trim() || '',
             framework:  this._getSelectedFramework(),
             weightDtype: document.getElementById('cfg-weight-dtype')?.value || 'bfloat16',
@@ -3253,6 +3366,11 @@ const Era = {
             this._setVal('cfg-key', cfg.key);
             this._setVal('cfg-model', cfg.model);
             this._setVal('cfg-model-custom', cfg.modelCustom);
+            this._setVal('cfg-custom-params', cfg.customParams);
+            this._setVal('cfg-custom-layers', cfg.customLayers);
+            this._setVal('cfg-custom-heads', cfg.customHeads);
+            this._setVal('cfg-custom-kv-heads', cfg.customKvHeads);
+            this._setVal('cfg-custom-hidden', cfg.customHidden);
             this._setVal('cfg-model-path', cfg.modelPath);
             this._setVal('cfg-weight-dtype', cfg.weightDtype);
             this._setVal('cfg-kv-dtype', cfg.kvDtype);
@@ -3262,10 +3380,12 @@ const Era = {
             this._setVal('cfg-throughput', cfg.throughput);
             this._setVal('cfg-e2e', cfg.e2e);
             if (cfg.framework) this.selectFramework(cfg.framework);
-            // Show custom model row if needed
+            // Show custom model rows if needed
             if (cfg.model === 'custom') {
                 const row = document.getElementById('cfg-custom-model-row');
+                const paramsRow = document.getElementById('cfg-custom-params-row');
                 if (row) row.style.display = '';
+                if (paramsRow) paramsRow.style.display = '';
             }
         } catch (_) {}
     },

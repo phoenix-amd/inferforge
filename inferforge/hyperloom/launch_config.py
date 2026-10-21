@@ -97,7 +97,7 @@ def campaign_to_hyperloom_args(
     if max_hours:
         args.extend(["--max-hours", str(max_hours)])
     else:
-        args.extend(["--max-hours", "2.0"])
+        args.extend(["--max-hours", "3.0"])
 
     # Enablement scope
     args.extend(["--enablement", "all"])

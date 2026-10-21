@@ -16,6 +16,15 @@ _DATA_DIR = PROJECT_DIR / "inferforge" / "data"
 _CALCULATOR_PATH = PROJECT_DIR / "inferforge" / "calculator" / "engine.py"
 
 
+class CustomModelParams(BaseModel):
+    """Architecture params for models not in the registry."""
+    params_b: float
+    layers: int = 80
+    heads: int = 64
+    kv_heads: int = 8
+    hidden: int = 8192
+
+
 class CalculateRequest(BaseModel):
     model: str
     gpu: str = "MI300X"
@@ -24,6 +33,7 @@ class CalculateRequest(BaseModel):
     seq_len: int = 4096
     kv_dtype: str | None = None
     extra_args: list[str] | None = None
+    custom_params: CustomModelParams | None = None
 
 
 @router.post("/calculate")
@@ -34,16 +44,34 @@ def api_calculate(body: CalculateRequest):
             f"engine.py not found at {_CALCULATOR_PATH}",
         )
 
-    cmd = [
-        sys.executable,
-        str(_CALCULATOR_PATH),
-        "--model", body.model,
-        "--gpu", body.gpu,
-        "--gpu-count", str(body.gpu_count),
-        "--dtype", body.dtype,
-        "--seq-len", str(body.seq_len),
-        "--json",
-    ]
+    # Build command — custom params use --params/--layers/etc, registry models use --model
+    if body.custom_params:
+        cp = body.custom_params
+        cmd = [
+            sys.executable,
+            str(_CALCULATOR_PATH),
+            "--params", str(cp.params_b),
+            "--layers", str(cp.layers),
+            "--heads", str(cp.heads),
+            "--kv-heads", str(cp.kv_heads),
+            "--hidden", str(cp.hidden),
+            "--gpu", body.gpu,
+            "--gpu-count", str(body.gpu_count),
+            "--dtype", body.dtype,
+            "--seq-len", str(body.seq_len),
+            "--json",
+        ]
+    else:
+        cmd = [
+            sys.executable,
+            str(_CALCULATOR_PATH),
+            "--model", body.model,
+            "--gpu", body.gpu,
+            "--gpu-count", str(body.gpu_count),
+            "--dtype", body.dtype,
+            "--seq-len", str(body.seq_len),
+            "--json",
+        ]
     if body.kv_dtype:
         cmd.extend(["--kv-dtype", body.kv_dtype])
     if body.extra_args:

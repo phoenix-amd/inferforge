@@ -376,9 +376,10 @@ const Charts = {
         events.forEach((ev, i) => {
             const y = pad.top + i * rowH;
             const isPending = ev._pending || (ev.start === 0 && ev.end === 0);
+            const isSkipped = ev.status === 'skipped';
 
-            // Row label — dim for pending, normal for active
-            ctx.fillStyle = isPending ? C.dim : C.muted;
+            // Row label — dim for pending/skipped, normal for active
+            ctx.fillStyle = (isPending || isSkipped) ? C.dim : C.muted;
             ctx.font = `bold ${Math.round(13 * fontSize)}px Inter, sans-serif`;
             ctx.textAlign = 'right';
             ctx.textBaseline = 'middle';
@@ -391,6 +392,28 @@ const Charts = {
             ctx.moveTo(pad.left, y + rowH / 2);
             ctx.lineTo(w - pad.right, y + rowH / 2);
             ctx.stroke();
+
+            if (isSkipped) {
+                // Skipped phase — yellow dashed bar + "skipped" label
+                ctx.save();
+                ctx.fillStyle = 'rgba(255, 180, 40, 0.15)';
+                ctx.beginPath();
+                ctx.roundRect(pad.left, y + rowH / 2 - 4, plotW * 0.10, 8, 3);
+                ctx.fill();
+                ctx.strokeStyle = 'rgba(255, 180, 40, 0.6)';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([4, 3]);
+                ctx.beginPath();
+                ctx.roundRect(pad.left, y + rowH / 2 - 4, plotW * 0.10, 8, 3);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.restore();
+                ctx.fillStyle = 'rgba(255, 180, 40, 0.8)';
+                ctx.font = `italic ${Math.round(11 * fontSize)}px JetBrains Mono, monospace`;
+                ctx.textAlign = 'left';
+                ctx.fillText('skipped', pad.left + plotW * 0.10 + 8, y + rowH / 2 + 1);
+                return;
+            }
 
             if (isPending) {
                 // Pending phase — draw a dim dashed placeholder

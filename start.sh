@@ -5,16 +5,17 @@ set -euo pipefail
 UVICORN_PID=""
 
 _shutdown() {
+  trap '' INT TERM TSTP HUP EXIT   # prevent re-entry
   echo ""
   echo "  [inferforge] Shutting down..."
   if [ -n "$UVICORN_PID" ]; then
     kill "$UVICORN_PID" 2>/dev/null || true
-    wait "$UVICORN_PID" 2>/dev/null || true
+    kill -9 "$UVICORN_PID" 2>/dev/null || true
   fi
   echo "  [inferforge] Stopped."
   exit 0
 }
-trap _shutdown INT TERM TSTP HUP EXIT
+trap _shutdown INT TERM TSTP HUP
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOST="${INFERFORGE_HOST:-0.0.0.0}"

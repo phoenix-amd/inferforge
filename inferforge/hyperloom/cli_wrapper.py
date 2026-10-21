@@ -93,7 +93,7 @@ async def launch_session(
     model_path: str,
     framework: str = "sglang",
     gpu_type: str = "mi300x",
-    max_hours: float = 2.0,
+    max_hours: float = 3.0,
     tp: int | None = None,
     ep: int | None = None,
     precision: str = "bf16",

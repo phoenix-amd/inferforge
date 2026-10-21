@@ -117,6 +117,9 @@ If NO similar model was found at all, omit Option 1.
 WAIT for the user to reply. Do NOT proceed without their choice.
 
 **If user picks Option 1 (closest model):**
+- PATCH the existing session to update model_name and model_path:
+  `PATCH /api/hyperloom/sessions/{session_id} {"model_name": "<similar_model>", "model_path": "<path>"}`
+  Do NOT create a new session — reuse the one from STEP 3.
 - Use the similar model path for Docker `--model` argument
 - Log: "Using <similar_model> as proxy for <requested_model>"
 - Proceed to Docker launch + benchmark
@@ -854,7 +857,7 @@ docker rm -f hyperloom-optimize 2>/dev/null; docker run -d --name hyperloom-opti
       --gpu-type mi300x \
       --tp <TP> \
       --precision bfloat16 \
-      --max-hours 3.0 \
+      --max-hours 4.5 \
       --critic-mock
   " > ~/hyperloom-run.log 2>&1
 ```

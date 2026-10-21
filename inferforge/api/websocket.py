@@ -206,8 +206,24 @@ async def _run_agent_task(cid: str, api_messages: list, skill: str, mode: str,
         # Agent was cancelled — save partial text and notify
         full_text = "".join(assistant_text_parts)
         if full_text.strip():
-            add_message(cid, "assistant", full_text + "\n\n*[Stopped by user]*",
-                        tool_calls=tool_calls_log or None)
+            try:
+                add_message(cid, "assistant", full_text + "\n\n*[Stopped by user]*",
+                            tool_calls=tool_calls_log or None)
+            except Exception:
+                # SQLite transaction state may be broken after cancellation —
+                # try with a fresh connection as last resort
+                try:
+                    import sqlite3
+                    from inferforge.config import DB_PATH
+                    conn = sqlite3.connect(str(DB_PATH))
+                    conn.execute(
+                        "INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)",
+                        (cid, "assistant", full_text + "\n\n*[Stopped by user]*"),
+                    )
+                    conn.commit()
+                    conn.close()
+                except Exception:
+                    pass  # best-effort — don't crash the stop handler
         await _broadcast(cid, {"type": "error", "content": "Job stopped by user."})
         await _broadcast(cid, {"type": "message_complete"})
         if cid in _docker_containers and _docker_containers[cid]:

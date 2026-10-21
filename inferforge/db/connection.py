@@ -27,7 +27,12 @@ def get_connection(db_path: str | Path | None = None) -> sqlite3.Connection:
             try:
                 conn.execute("SELECT 1")
                 return conn
-            except sqlite3.ProgrammingError:
+            except (sqlite3.ProgrammingError, sqlite3.InterfaceError):
+                # Connection is corrupted — close and recreate
+                try:
+                    conn.close()
+                except Exception:
+                    pass
                 _connections.pop(key, None)
 
         Path(key).parent.mkdir(parents=True, exist_ok=True)

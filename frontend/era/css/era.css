@@ -146,6 +146,18 @@
     text-transform: uppercase;
     animation: hl-banner-glow 2s ease-in-out infinite alternate;
 }
+.era-hyperloom-banner.banner-done {
+    animation: none;
+    background: rgba(0, 200, 100, 0.15) !important;
+    border-color: #00c896 !important;
+    color: #00c896 !important;
+    box-shadow: none !important;
+}
+.era-hyperloom-banner.banner-done .era-hyperloom-pulse {
+    animation: none;
+    background: #00c896;
+    box-shadow: 0 0 8px #00c896;
+}
 .era-hyperloom-pulse {
     width: 8px;
     height: 8px;

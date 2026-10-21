@@ -1,6 +1,7 @@
 """Conversation and message CRUD operations."""
 
 import json
+import sqlite3
 import uuid
 
 from .connection import get_connection
