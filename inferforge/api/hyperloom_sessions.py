@@ -342,33 +342,144 @@ def api_probe_phase(session_id: str):
 
     # Find session_dir from state — scan hl-data for latest session dir if not stored
     ssh_key = "~/.ssh/id_ed25519_moba"
-    try:
-        # Try reading state.json via docker exec (most reliable)
-        cmd = (
-            f"ssh -i {ssh_key} -o BatchMode=yes -o ConnectTimeout=10 "
-            f"-o StrictHostKeyChecking=no rghaffar@{host} "
-            f"\"docker exec hyperloom-optimize python3 -c '"
-            f"import json, glob, os; "
-            f"dirs = sorted(glob.glob(\\\"/hl-data/*/2026*\\\"), key=os.path.getmtime); "
-            f"sd = dirs[-1] if dirs else \\\"\\\"; "
-            f"s = json.load(open(sd + \\\"/state.json\\\")) if sd else {{}}; "
-            f"print(json.dumps({{\\\"phase\\\": s.get(\\\"phase\\\"), "
-            f"\\\"tick\\\": s.get(\\\"tick\\\"), "
-            f"\\\"baseline_tput\\\": s.get(\\\"baseline_tput\\\",0), "
-            f"\\\"cumulative_gain\\\": s.get(\\\"cumulative_gain_validated\\\",0), "
-            f"\\\"current_best_tput\\\": s.get(\\\"current_best\\\",{{}}).get(\\\"tput\\\",0), "
-            f"\\\"elapsed_sec\\\": int(s.get(\\\"elapsed_charged_sec\\\",0)), "
-            f"\\\"stop_reason\\\": s.get(\\\"stop_reason\\\",\\\"\\\"), "
-            f"\\\"phase_history\\\": [(x[\\\"to_phase\\\"],x.get(\\\"ts_unix\\\",0)) for x in s.get(\\\"phase_history\\\",[])], "
-            f"\\\"session_dir\\\": sd}}))' 2>/dev/null\""
-        )
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15)
-        if result.returncode != 0 or not result.stdout.strip():
-            return {"status": "ssh_failed", "error": result.stderr[:200]}
+    ssh_prefix = (
+        f"ssh -i {ssh_key} -o BatchMode=yes -o ConnectTimeout=10 "
+        f"-o StrictHostKeyChecking=no rghaffar@{host}"
+    )
 
-        state = json.loads(result.stdout.strip())
-    except Exception as e:
-        return {"status": "error", "error": str(e)[:200]}
+    # Python snippet that extracts the fields we need from state.json.
+    # Used by both docker exec (inside container) and host-side fallbacks.
+    _extract_py = (
+        "import json,glob,os,sys; "
+        "dirs=sorted(glob.glob('{root}/*/2026*'),key=os.path.getmtime); "
+        "sd=dirs[-1] if dirs else ''; "
+        "s=json.load(open(sd+'/state.json')) if sd and os.path.exists(sd+'/state.json') else {{}}; "
+        "print(json.dumps({{"
+        "'phase':s.get('phase'),"
+        "'tick':s.get('tick'),"
+        "'baseline_tput':s.get('baseline_tput',0),"
+        "'cumulative_gain':s.get('cumulative_gain_validated',0),"
+        "'current_best_tput':s.get('current_best',{{}}).get('tput',0),"
+        "'elapsed_sec':int(s.get('elapsed_charged_sec',0)),"
+        "'stop_reason':s.get('stop_reason',''),"
+        "'phase_history':[(x['to_phase'],x.get('ts_unix',0)) for x in s.get('phase_history',[])],"
+        "'session_dir':sd}}))"
+    )
+
+    state = None
+    probe_method = None
+
+    # ── Method 1: docker exec (container running) ────────────────────────
+    try:
+        cmd = f'{ssh_prefix} "docker exec hyperloom-optimize python3 -c \\"{_extract_py.format(root="/hl-data")}\\" 2>/dev/null"'
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15)
+        if result.returncode == 0 and result.stdout.strip():
+            state = json.loads(result.stdout.strip())
+            probe_method = "docker_exec"
+    except Exception:
+        pass
+
+    # ── Method 2: docker cp to temp file, parse via base64-encoded script ──
+    # docker cp to /dev/stdout doesn't work, but to a temp file works on
+    # stopped containers.  We base64-encode the parse script to avoid all
+    # shell quoting issues when piping through SSH.
+    import base64
+    _parse_py = (
+        'import json\n'
+        's=json.load(open("/tmp/_hlprobe.json"))\n'
+        'cb=s.get("current_best",{})\n'
+        'r={"phase":s.get("phase"),"tick":s.get("tick"),'
+        '"baseline_tput":s.get("baseline_tput",0),'
+        '"cumulative_gain":s.get("cumulative_gain_validated",0),'
+        '"current_best_tput":cb.get("tput",0),'
+        '"elapsed_sec":int(s.get("elapsed_charged_sec",0)),'
+        '"stop_reason":s.get("stop_reason",""),'
+        '"phase_history":[(x["to_phase"],x.get("ts_unix",0)) for x in s.get("phase_history",[])],'
+        '"best_extra_server_args":cb.get("extra_server_args",""),'
+        '"best_ttft_p50":cb.get("ttft_p50_ms") or cb.get("ttft_mean_ms"),'
+        '"best_tpot_p50":cb.get("tpot_p50_ms") or cb.get("tpot_mean_ms"),'
+        '"best_tpot_p90":cb.get("tpot_p90_ms"),'
+        '"best_e2el":cb.get("e2el_mean_ms"),'
+        '"best_power":cb.get("gpu_power_avg_w"),'
+        '"session_dir_internal":s.get("session_dir","")}\n'
+        'print(json.dumps(r))\n'
+    )
+    _b64_script = base64.b64encode(_parse_py.encode()).decode()
+
+    # Separate script to parse baseline inferencex_result.json
+    _parse_baseline_py = (
+        'import json\n'
+        'd=json.load(open("/tmp/_hlbaseline.json"))\n'
+        'print(json.dumps({"bl_tput":d.get("output_throughput",0),'
+        '"bl_ttft_p50":d.get("median_ttft_ms"),'
+        '"bl_ttft_p99":d.get("p99_ttft_ms"),'
+        '"bl_tpot_p50":d.get("median_tpot_ms"),'
+        '"bl_tpot_p99":d.get("p99_tpot_ms"),'
+        '"bl_e2el_p50":d.get("median_e2el_ms"),'
+        '"bl_itl_p50":d.get("median_itl_ms")}))\n'
+    )
+    _b64_baseline = base64.b64encode(_parse_baseline_py.encode()).decode()
+
+    def _docker_cp_probe(container_path: str) -> dict | None:
+        """Copy state.json from container to temp file, parse with b64 script."""
+        try:
+            cmd = (
+                f'{ssh_prefix} "docker cp hyperloom-optimize:{container_path} /tmp/_hlprobe.json 2>/dev/null'
+                f" && echo '{_b64_script}' | base64 -d | python3"
+                f' ; rm -f /tmp/_hlprobe.json"'
+            )
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=20)
+            if result.returncode == 0 and result.stdout.strip():
+                return json.loads(result.stdout.strip())
+        except Exception:
+            pass
+        return None
+
+    if state is None:
+        # 2a: Use the known session_dir from the DB
+        if session_dir:
+            sd_rel = session_dir.split("/hl-data/")[-1] if "/hl-data/" in session_dir else session_dir.lstrip("/")
+            parsed = _docker_cp_probe(f"/hl-data/{sd_rel}/state.json")
+            if parsed:
+                state = parsed
+                probe_method = "docker_cp_known_dir"
+
+        # 2b: Scan container for the latest state.json
+        if state is None:
+            try:
+                scan_cmd = (
+                    f'{ssh_prefix} "docker cp hyperloom-optimize:/hl-data - 2>/dev/null '
+                    f'| tar -tf - 2>/dev/null | grep state.json | sort | tail -1"'
+                )
+                scan = subprocess.run(scan_cmd, shell=True, capture_output=True, text=True, timeout=25)
+                if scan.returncode == 0 and scan.stdout.strip():
+                    latest = scan.stdout.strip()
+                    cpath = "/" + latest if not latest.startswith("/") else latest
+                    parsed = _docker_cp_probe(cpath)
+                    if parsed:
+                        state = parsed
+                        probe_method = "docker_cp_scan"
+            except Exception:
+                pass
+
+    # ── Method 3: host filesystem (state.json may be world-readable) ─────
+    if state is None:
+        try:
+            cmd = f'{ssh_prefix} "python3 -c \\"{_extract_py.format(root="/home/rghaffari/hl-data")}\\" 2>/dev/null"'
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15)
+            if result.returncode == 0 and result.stdout.strip():
+                parsed = json.loads(result.stdout.strip())
+                # Only accept if it has real phase data (not empty {})
+                if parsed.get("phase") or parsed.get("phase_history"):
+                    state = parsed
+                    probe_method = "host_filesystem"
+        except Exception:
+            pass
+
+    # (Method 4 removed — tar stream unreliable with large /hl-data on Python 3.9)
+
+    if state is None:
+        return {"status": "ssh_failed", "error": "all 3 probe methods failed (docker_exec, docker_cp, host_fs)"}
 
     # ── Stale state.json guard ──────────────────────────────────────────────
     # During the first ~4 min after launch, hyperloom is installing packages
@@ -463,7 +574,7 @@ def api_probe_phase(session_id: str):
     # pending phases (like SWEEP) as skipped.
     if state.get("stop_reason") == "sweep_done":
         for p in timeline:
-            if p["name"] == "CLOSE" and p["status"] in ("pending", "skipped"):
+            if p["name"] == "CLOSE" and p["status"] in ("pending", "skipped", "running"):
                 # CLOSE ran — use the last known end time
                 last_end = max((t["end_time"] for t in timeline if t["end_time"] > 0), default=now_ts)
                 p["status"] = "complete"
@@ -483,6 +594,69 @@ def api_probe_phase(session_id: str):
         updates["stop_reason"] = state["stop_reason"]
         updates["status"] = "completed"
 
+        # ── Fetch baseline metrics from inferencex_result.json inside container ──
+        # This has per-metric baseline data (TTFT, TPOT, E2E) that state.json lacks.
+        bl_metrics = {}
+        # Use session_dir from DB (reliable) — state.json may have it empty
+        sdir_internal = session_dir or state.get("session_dir_internal", "")
+        if sdir_internal:
+            try:
+                # Find baseline result file path via tar listing
+                scan_cmd = (
+                    f'{ssh_prefix} "docker cp hyperloom-optimize:/hl-data - 2>/dev/null '
+                    f"| tar -tf - 2>/dev/null | grep '{sdir_internal.lstrip('/').split('/hl-data/')[-1]}.*runs/baseline.*measure_round.*inferencex_result' | tail -1\""
+                )
+                scan = subprocess.run(scan_cmd, shell=True, capture_output=True, text=True, timeout=25)
+                if scan.returncode == 0 and scan.stdout.strip():
+                    bl_path = "/" + scan.stdout.strip()
+                    bl_cmd = (
+                        f'{ssh_prefix} "docker cp hyperloom-optimize:{bl_path} /tmp/_hlbaseline.json 2>/dev/null'
+                        f" && echo '{_b64_baseline}' | base64 -d | python3"
+                        f' ; rm -f /tmp/_hlbaseline.json"'
+                    )
+                    bl_result = subprocess.run(bl_cmd, shell=True, capture_output=True, text=True, timeout=20)
+                    if bl_result.returncode == 0 and bl_result.stdout.strip():
+                        bl_metrics = json.loads(bl_result.stdout.strip())
+            except Exception:
+                pass
+
+        # Build outcome_json with full baseline + optimized breakdown
+        baseline_tput = state.get("baseline_tput", 0)
+        best_tput = state.get("current_best_tput", 0)
+        bl = {"throughput_tps": round(baseline_tput, 1)}
+        opt = {"throughput_tps": round(best_tput, 1)}
+
+        # Baseline metrics from inferencex_result.json
+        def _r(v):
+            return round(v, 1) if v is not None else None
+        if bl_metrics.get("bl_ttft_p50") is not None:
+            bl["ttft_p50_ms"] = _r(bl_metrics["bl_ttft_p50"])
+        if bl_metrics.get("bl_ttft_p99") is not None:
+            bl["ttft_p99_ms"] = _r(bl_metrics["bl_ttft_p99"])
+        if bl_metrics.get("bl_tpot_p50") is not None:
+            bl["tpot_p50_ms"] = _r(bl_metrics["bl_tpot_p50"])
+        if bl_metrics.get("bl_e2el_p50") is not None:
+            bl["e2e_p50_ms"] = _r(bl_metrics["bl_e2el_p50"])
+
+        # Optimized metrics from state.json current_best
+        ttft = state.get("best_ttft_p50")
+        if ttft is not None:
+            opt["ttft_p50_ms"] = _r(ttft)
+        tpot = state.get("best_tpot_p50") or state.get("best_tpot_p90")
+        if tpot is not None:
+            opt["tpot_p50_ms"] = _r(tpot)
+        e2el = state.get("best_e2el")
+        if e2el is not None:
+            opt["e2e_p50_ms"] = _r(e2el)
+
+        extra_args = state.get("best_extra_server_args", "")
+        outcome = {
+            "baseline": bl,
+            "optimized": opt,
+            "winning_flags": extra_args.split() if extra_args else [],
+        }
+        updates["outcome_json"] = json.dumps(outcome)
+
     set_clause = ", ".join(f"{k}=?" for k in updates)
     vals = list(updates.values()) + [session_id]
     with conn:
@@ -490,6 +664,7 @@ def api_probe_phase(session_id: str):
 
     return {
         "status": "synced",
+        "probe_method": probe_method,
         "phase": state.get("phase"),
         "tick": state.get("tick"),
         "gain": state.get("cumulative_gain"),
