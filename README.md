@@ -53,24 +53,24 @@ Getting an LLM to serve optimally on AMD Instinct GPUs today requires **three se
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────┐
-│                        THE FRAGMENTED INFERENCE WORKFLOW                             │
+│                        THE FRAGMENTED INFERENCE WORKFLOW                            │
 │                                                                                     │
 │  ┌──────────────┐     ┌──────────────────┐     ┌────────────────────┐               │
-│  │  PROFILING    │     │  OPTIMIZATION    │     │  DEPLOYMENT        │               │
+│  │  PROFILING   │     │  OPTIMIZATION    │     │  DEPLOYMENT        │               │
 │  │              │     │                  │     │                    │               │
-│  │  "Will this  │     │  "How do I make  │     │  "How do I get    │               │
-│  │   model fit  │ ──► │   it faster?"    │ ──► │   this to prod?"  │               │
+│  │  "Will this  │     │  "How do I make  │     │  "How do I get     │               │
+│  │   model fit  │ ──► │   it faster?"    │ ──► │   this to prod?"   │               │
 │  │   on my      │     │                  │     │                    │               │
-│  │   GPUs?"     │     │  Manual Docker,  │     │  Manual deploy,   │               │
-│  │              │     │  trial & error,  │     │  no canary,       │               │
-│  │  Spreadsheet │     │  no kernel       │     │  no rollback,     │               │
-│  │  math,       │     │  optimization    │     │  no fleet view    │               │
+│  │   GPUs?"     │     │  Manual Docker,  │     │  Manual deploy,    │               │
+│  │              │     │  trial & error,  │     │  no canary,        │               │
+│  │  Spreadsheet │     │  no kernel       │     │  no rollback,      │               │
+│  │  math,       │     │  optimization    │     │  no fleet view     │               │
 │  │  guesswork   │     │                  │     │                    │               │
 │  └──────────────┘     └──────────────────┘     └────────────────────┘               │
 │                                                                                     │
-│  ❌ No unified tool     ❌ Different CLIs      ❌ No state machine                   │
-│  ❌ No agent automation ❌ No recipe system     ❌ No GPU reservation                 │
-│  ❌ No fleet visibility ❌ No SLA tracking      ❌ No comparison data                 │
+│  ❌ No unified tool     ❌ Different CLIs      ❌ No state machine                 │
+│  ❌ No agent automation ❌ No recipe system     ❌ No GPU reservation              │
+│  ❌ No fleet visibility ❌ No SLA tracking      ❌ No comparison data              │
 └─────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -183,30 +183,30 @@ InferForge was born from identifying the gaps in both Hyperloom and AMD Inferenc
 
 ```
                     Hyperloom                          AMD Inference Agent
-              ┌────────────────────┐              ┌────────────────────────┐
-              │                    │              │                        │
+              ┌────────────────────┐               ┌────────────────────────┐
+              │                    │               │                        │
               │  Kernel Opt ✅     │              │  Memory Profiling ✅   │
               │  Framework Tune ✅ │              │  GPU Detection ✅      │
               │  Recipe KB ✅      │              │  Docker Benchmark ✅   │
               │  Multi-Agent ✅    │              │  Conversational AI ✅  │
               │  Roofline ✅       │              │  3 Execution Modes ✅  │
-              │                    │              │                        │
-              │  ❌ No GUI          │              │  ❌ No Optimization     │
-              │  ❌ No Fleet Mgmt   │              │  ❌ No Campaigns        │
-              │  ❌ No Campaigns    │              │  ❌ No Deployment       │
-              │  ❌ No Deployment   │              │  ❌ No Fleet Mgmt      │
-              │  ❌ No Memory Calc  │              │  ❌ No Recipes          │
-              │  ❌ No REST API     │              │  ❌ No MLA KV Cache     │
-              │  ❌ No Auth         │              │  ❌ Limited Models (9)  │
-              │                    │              │                        │
-              └─────────┬──────────┘              └───────────┬────────────┘
-                        │                                     │
-                        │         ┌───────────────┐           │
-                        └────────►│  InferForge   │◄──────────┘
-                                  │               │
-                                  │  ALL of the   │
-                                  │  above, PLUS: │
-                                  │               │
+              │                     │              │                        │
+              │  ❌ No GUI         │              │  ❌ No Optimization    │
+              │  ❌ No Fleet Mgmt  │              │  ❌ No Campaigns       │
+              │  ❌ No Campaigns   │              │  ❌ No Deployment      │
+              │  ❌ No Deployment  │              │  ❌ No Fleet Mgmt      │
+              │  ❌ No Memory Calc │              │  ❌ No Recipes         │
+              │  ❌ No REST API    │              │  ❌ No MLA KV Cache    │
+              │  ❌ No Auth        │              │  ❌ Limited Models (9) │
+              │                    │               │                        │
+              └─────────┬──────────┘               └───────────┬────────────┘
+                        │                                      │
+                        │         ┌───────────────┐            │
+                        └────────►│  InferForge   │◄───────────┘
+                                  │                │
+                                  │  ALL of the    │
+                                  │  above, PLUS:  │
+                                  │                │
                                   │  ✅ Mission    │
                                   │    Control GUI │
                                   │  ✅ Fleet Mgmt │
@@ -218,7 +218,7 @@ InferForge was born from identifying the gaps in both Hyperloom and AMD Inferenc
                                   │  ✅ JWT Auth   │
                                   │  ✅ Telemetry  │
                                   │  ✅ 12-Table DB│
-                                  └───────────────┘
+                                  └────────────────┘
 ```
 
 ---
@@ -232,10 +232,10 @@ InferForge was born from identifying the gaps in both Hyperloom and AMD Inferenc
 │                              InferForge Platform                                  │
 │                                                                                   │
 │  ┌──────────────────────────────────────────────────────────┐  ┌───────────────┐  │
-│  │              ERA — Mission Control GUI                    │  │  REST API     │  │
+│  │              ERA — Mission Control GUI                   │  │  REST API     │  │
 │  │                                                          │  │  50+ endpts   │  │
 │  │  ┌──────────────┐  ┌──────────────────┐                  │  │               │  │
-│  │  │ GPU Telemetry │  │ Optimization     │                  │  │  /api/fleet   │  │
+│  │  │ GPU Telemetry │ │ Optimization     │                  │  │  /api/fleet   │  │
 │  │  │ Heatmap      │  │ Timeline (Gantt) │                  │  │  /api/bench   │  │
 │  │  │ Live util/   │  │ PRELUDE →        │                  │  │  /api/deploy  │  │
 │  │  │ temp/power   │  │ ENABLEMENT →     │                  │  │  /api/hyper   │  │
@@ -250,20 +250,20 @@ InferForge was born from identifying the gaps in both Hyperloom and AMD Inferenc
 │  │  │ Throughput,  │  │ promoted →       │  │  Config +  │  │  │  /ws/fleet    │  │
 │  │  │ TTFT, ITL    │  │ (or rollback)    │  │  Quick Cmd │  │  │               │  │
 │  │  └──────────────┘  └──────────────────┘  └────────────┘  │  └───────────────┘  │
-│  └──────────────────────────────────────────────────────────┘                      │
-│                                    │                                               │
-│                        ┌───────────▼───────────┐                                   │
-│                        │   FastAPI Server       │                                   │
-│                        │   (Port 7801)          │                                   │
-│                        │                       │                                   │
-│                        │   11 API Routers      │                                   │
-│                        │   WebSocket Hub       │                                   │
-│                        │   JWT Auth Layer      │                                   │
-│                        │   Agent Loop          │                                   │
-│                        └───┬─────┬─────┬───────┘                                   │
-│                            │     │     │                                           │
-│              ┌─────────────┤     │     ├─────────────┐                             │
-│              ▼             ▼     │     ▼             ▼                             │
+│  └──────────────────────────────────────────────────────────┘                     │
+│                                    │                                              │
+│                        ┌───────────▼───────────┐                                  │
+│                        │   FastAPI Server      │                                  │
+│                        │   (Port 7801)         │                                  │
+│                        │                       │                                  │
+│                        │   11 API Routers      │                                  │
+│                        │   WebSocket Hub       │                                  │
+│                        │   JWT Auth Layer      │                                  │
+│                        │   Agent Loop          │                                  │
+│                        └───┬─────┬─────┬───────┘                                  │
+│                            │     │     │                                          │
+│              ┌─────────────┤     │     ├─────────────┐                            │
+│              ▼             ▼     │     ▼             ▼                            │
 │  ┌──────────────┐ ┌────────────┐ │ ┌──────────┐ ┌──────────┐                      │
 │  │   SQLite DB  │ │  Claude AI │ │ │  GPU     │ │ Hyperloom│                      │
 │  │   12 tables  │ │  Agent     │ │ │  Cluster │ │ Engine   │                      │
@@ -271,30 +271,30 @@ InferForge was born from identifying the gaps in both Hyperloom and AMD Inferenc
 │  │              │ │  4 tools   │ │ │          │ │          │                      │
 │  │  users       │ │  streaming │ │ │  amd-smi │ │ PRELUDE  │                      │
 │  │  benchmarks  │ │  3 modes   │ │ │  rocm-smi│ │ ENABLE   │                      │
-│  │  campaigns   │ │            │ │ │  telemetry│ │ FW_AGENT │                      │
+│  │  campaigns   │ │            │ │ │  telemetry│ │ FW_AGENT │                     │
 │  │  deployments │ └────────────┘ │ │          │ │ KN_AGENT │                      │
 │  │  fleet_nodes │                │ │  vLLM    │ │ SWEEP    │                      │
 │  │  sessions    │                │ │  SGLang  │ │ CLOSE    │                      │
 │  │  recipes     │                │ │  TGI     │ │          │                      │
 │  └──────────────┘                │ └──────────┘ └──────────┘                      │
-│                                  │                                                 │
-│                    ┌─────────────▼──────────────┐                                  │
-│                    │   Memory Calculator Engine  │                                  │
-│                    │                             │                                  │
-│                    │   engine.py + kv_cache.py   │                                  │
-│                    │   + batch_sweep.py          │                                  │
-│                    │                             │                                  │
-│                    │   50+ models  ×  8 GPUs     │                                  │
-│                    │   MHA / GQA / MLA support   │                                  │
-│                    │   MoE expert distribution   │                                  │
-│                    └─────────────────────────────┘                                  │
+│                                  │                                                │
+│                    ┌─────────────▼───────────────┐                                │
+│                    │   Memory Calculator Engine  │                                │
+│                    │                             │                                │
+│                    │   engine.py + kv_cache.py   │                                │
+│                    │   + batch_sweep.py          │                                │
+│                    │                             │                                │
+│                    │   50+ models  ×  8 GPUs     │                                │
+│                    │   MHA / GQA / MLA support   │                                │
+│                    │   MoE expert distribution   │                                │
+│                    └─────────────────────────────┘                                │
 └───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### End-to-End Optimization Flow
 
 ```
-┌─────────┐    ┌──────────────┐    ┌───────────────────┐    ┌──────────────────┐    ┌─────────────┐
+┌─────────┐    ┌──────────────┐    ┌────────────────────┐    ┌──────────────────┐    ┌─────────────┐
 │  INPUT  │    │  PROFILING   │    │   OPTIMIZATION     │    │  COMPARISON      │    │ DEPLOYMENT  │
 │         │    │              │    │                    │    │                  │    │             │
 │ Model   │    │ GPU Detect   │    │ Hyperloom Session  │    │ Campaign         │    │ Canary      │
@@ -310,19 +310,19 @@ InferForge was born from identifying the gaps in both Hyperloom and AMD Inferenc
 │         │    │ HBM Visual   │    │                    │    │ ✅ TPOT < 15ms   │    │             │
 │         │    │              │    │ KERNEL_AGENT       │    │                  │    │ Recipe      │
 │         │    │ Batch Size   │    │   GPU kernel opt   │    │ Winner:          │    │ saved to    │
-│         │    │ Analysis     │    │   (GEAK/Triton)    │    │ "vLLM TP=8 fp8" │    │ Knowledge   │
+│         │    │ Analysis     │    │   (GEAK/Triton)    │    │ "vLLM TP=8 fp8"  │    │ Knowledge   │
 │         │    │              │    │                    │    │                  │    │ Base        │
 │         │    │              │    │ SWEEP              │    │                  │    │             │
 │         │    │              │    │   Concurrency test │    │                  │    │             │
 │         │    │              │    │                    │    │                  │    │             │
 │         │    │              │    │ CLOSE              │    │                  │    │             │
 │         │    │              │    │   Recipe export    │    │                  │    │             │
-└─────────┘    └──────────────┘    └───────────────────┘    └──────────────────┘    └─────────────┘
+└─────────┘    └──────────────┘    └────────────────────┘    └──────────────────┘    └─────────────┘
      │                │                      │                       │                     │
      │          ┌─────▼──────────────────────▼───────────────────────▼─────────────────────▼──┐
      │          │                    ERA — Mission Control Dashboard                          │
      └─────────►│   Real-time visualization of every stage across all fleet nodes             │
-                └────────────────────────────────────────────────────────────────────────────┘
+                └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Hyperloom Integration — Multi-Agent Kernel Optimization
@@ -345,18 +345,18 @@ InferForge wraps and extends [ROCm Hyperloom](https://github.com/AMD-AGI/Hyperlo
 │  │                  ▼                                                          │  │
 │  │    Gap Analysis and Bridge Planning                                         │  │
 │  └─────────────────────────────────────────────────────────────────────────────┘  │
-│                                    │                                               │
-│                                    ▼                                               │
+│                                    │                                              │
+│                                    ▼                                              │
 │  ┌─────────────────────────────────────────────────────────────────────────────┐  │
 │  │               Kernel + Self-Evolving Optimization                           │  │
 │  │                                                                             │  │
 │  │    Arbor — Self-Evolving Optimization Search                                │  │
-│  │    ┌──────────────────────────────────────────────┐                          │  │
-│  │    │  Agent Loop: Think → Decide → Implement →    │                          │  │
-│  │    │              Benchmark → Validate            │                          │  │
-│  │    │              ↕                               │                          │  │
-│  │    │  Dynamic Specialist Agent + Knowledge Base   │                          │  │
-│  │    └──────────────────────────────────────────────┘                          │  │
+│  │    ┌──────────────────────────────────────────────┐                         │  │
+│  │    │  Agent Loop: Think → Decide → Implement →    │                         │  │
+│  │    │              Benchmark → Validate            │                         │  │
+│  │    │              ↕                               │                         │  │
+│  │    │  Dynamic Specialist Agent + Knowledge Base   │                         │  │
+│  │    └──────────────────────────────────────────────┘                         │  │
 │  │                                                                             │  │
 │  │    Kernel Optimization Agents                                               │  │
 │  │    ├── GEAK ─────────── GPU kernel generation (Triton/HIP/FlyDSL)           │  │
@@ -364,8 +364,8 @@ InferForge wraps and extends [ROCm Hyperloom](https://github.com/AMD-AGI/Hyperlo
 │  │    ├── ClaudeCode ───── AI-driven source patches                            │  │
 │  │    └── OpenAI Codex ─── Alternative AI backend                              │  │
 │  └─────────────────────────────────────────────────────────────────────────────┘  │
-│                                    │                                               │
-│                                    ▼                                               │
+│                                    │                                              │
+│                                    ▼                                              │
 │  ┌─────────────────────────────────────────────────────────────────────────────┐  │
 │  │                         Apply Changes                                       │  │
 │  │                                                                             │  │
@@ -405,30 +405,30 @@ A real-time 4-panel dashboard with command sidebar:
 ┌──────────────────────────────────┬──────────────────────────────────┬─────────────┐
 │         GPU TELEMETRY            │      OPTIMIZATION TIMELINE       │   COMMAND   │
 │                                  │                                  │   SIDEBAR   │
-│  ┌──────┐ ┌──────┐ ┌──────┐     │  PRELUDE     ████████░░  12min   │             │
-│  │Node 1│ │Node 2│ │Node 3│     │  ENABLEMENT  █████████░   9min   │  [Config]   │
-│  │8xGPU │ │8xGPU │ │8xGPU │     │  FW_AGENT    ███████████ 28min   │  Head IP    │
-│  │87% ▓▓│ │42% ▓ │ │91% ▓▓│     │  KERNEL      ██████████░ 41min   │  Workers    │
-│  │72°C  │ │58°C  │ │74°C  │     │  SWEEP       ███░░░░░░░ running  │  Model      │
-│  │340W  │ │285W  │ │355W  │     │  CLOSE       ░░░░░░░░░░ pending  │  Framework  │
-│  └──────┘ └──────┘ └──────┘     │                                  │  GPU Type   │
+│  ┌──────┐ ┌──────┐ ┌──────┐      │  PRELUDE     ████████░░  12min   │             │
+│  │Node 1│ │Node 2│ │Node 3│      │  ENABLEMENT  █████████░   9min   │  [Config]   │
+│  │8xGPU │ │8xGPU │ │8xGPU │      │  FW_AGENT    ███████████ 28min   │  Head IP    │
+│  │87% ▓▓│ │42% ▓ │ │91% ▓▓│      │  KERNEL      ██████████░ 41min   │  Workers    │
+│  │72°C  │ │58°C  │ │74°C  │      │  SWEEP       ███░░░░░░░ running  │  Model      │
+│  │340W  │ │285W  │ │355W  │      │  CLOSE       ░░░░░░░░░░ pending  │  Framework  │
+│  └──────┘ └──────┘ └──────┘      │                                  │  GPU Type   │
 │                                  │  Gain: +32% throughput           │             │
 ├──────────────────────────────────┼──────────────────────────────────┤  [Chat]     │
 │       BENCHMARK RESULTS          │      DEPLOYMENT PIPELINE         │             │
 │                                  │                                  │  > Detect   │
-│  Peak Throughput: 2,847 tok/s    │  ┌────────┐   ┌────────┐        │    GPUs     │
+│  Peak Throughput: 2,847 tok/s    │  ┌────────┐   ┌────────┐         │    GPUs     │
 │  Median TTFT:     42.1 ms        │  │pending │──►│deploying│        │  > Memory   │
-│  P99 TTFT:        89.7 ms        │  └────────┘   └────┬───┘        │    Calc     │
+│  P99 TTFT:        89.7 ms        │  └────────┘   └────┬───┘         │    Calc     │
 │  Best TP:         8              │                    │             │  > Bench-   │
-│                                  │               ┌────▼───┐        │    mark     │
-│  ┌─────────────────────┐         │               │ canary │        │  > Auto-    │
-│  │ Throughput ▓▓▓▓▓▓▓▓ │         │               │  10%   │        │    Optimize │
-│  │ Chart     ▓▓▓▓▓▓▓  │         │               └────┬───┘        │  > Deploy   │
-│  │           ▓▓▓▓▓▓   │         │                    │             │    Best     │
-│  └─────────────────────┘         │               ┌────▼────┐       │  > Stop All │
-│                                  │               │promoted │       │             │
-│                                  │               │  100%   │       │             │
-│                                  │               └─────────┘       │             │
+│                                  │               ┌────▼───┐         │    mark     │
+│  ┌─────────────────────┐         │               │ canary │         │  > Auto-    │
+│  │ Throughput ▓▓▓▓▓▓▓▓ │         │               │  10%   │         │    Optimize │
+│  │ Chart     ▓▓▓▓▓▓▓   │         │               └────┬───┘         │  > Deploy   │
+│  │           ▓▓▓▓▓▓    │         │                    │             │    Best     │
+│  └─────────────────────┘         │               ┌────▼────┐        │  > Stop All │
+│                                  │               │promoted │        │             │
+│                                  │               │  100%   │        │             │
+│                                  │               └─────────┘        │             │
 └──────────────────────────────────┴──────────────────────────────────┴─────────────┘
 ```
 
@@ -454,12 +454,12 @@ $ python3 inferforge/calculator/engine.py --model "Llama-3.1-70B-Instruct" --gpu
 │              Memory Analysis: Llama 3.1 70B Instruct             │
 ├──────────────────────┬───────────────────────────────────────────┤
 │ Weight Memory        │  130.0 GB (bf16, 70B params)              │
-│ KV Cache / Token     │  1.25 MB (GQA: 8 KV heads)               │
+│ KV Cache / Token     │  1.25 MB (GQA: 8 KV heads)                │
 │ KV Cache / Request   │  160.0 MB (128K seq len)                  │
 │ Overhead (10%)       │  19.2 GB per GPU                          │
-│ Usable HBM           │  172.8 GB per GPU (192 GB × 0.90)        │
+│ Usable HBM           │  172.8 GB per GPU (192 GB × 0.90)         │
 ├──────────────────────┴───────────────────────────────────────────┤
-│                    Valid Configurations                           │
+│                    Valid Configurations                          │
 ├──────┬────┬────┬───────────┬──────────┬───────────┬──────────────┤
 │  TP  │ PP │ DP │ Wt/GPU    │ KV Budget│ Max Batch │ Best For     │
 ├──────┼────┼────┼───────────┼──────────┼───────────┼──────────────┤
@@ -483,16 +483,16 @@ $ python3 inferforge/calculator/engine.py --model "Llama-3.1-70B-Instruct" --gpu
 Register, monitor, and manage GPU nodes across your cluster:
 
 ```
-┌───────────────────────────────────────────────────────────────┐
-│                     Fleet Node Inventory                      │
-├────────────────┬──────────┬──────┬──────────┬────────┬────────┤
-│ Hostname       │ Platform │ GPUs │ HBM/GPU  │ ROCm   │ Status │
-├────────────────┼──────────┼──────┼──────────┼────────┼────────┤
-│ gpu-node-01    │ MI300X   │   8  │ 192 GB   │ 6.4.0  │ ● online  │
-│ gpu-node-02    │ MI300X   │   8  │ 192 GB   │ 6.4.0  │ ● online  │
-│ gpu-node-03    │ MI325X   │   8  │ 256 GB   │ 6.4.0  │ ● online  │
+┌───────────────────────────────────────────────────────────────────┐
+│                     Fleet Node Inventory                          │
+├────────────────┬──────────┬──────┬──────────┬────────┬────────────┤
+│ Hostname       │ Platform │ GPUs │ HBM/GPU  │ ROCm   │ Status     │
+├────────────────┼──────────┼──────┼──────────┼────────┼────────────┤
+│ gpu-node-01    │ MI300X   │   8  │ 192 GB   │ 6.4.0  │ ● online   │
+│ gpu-node-02    │ MI300X   │   8  │ 192 GB   │ 6.4.0  │ ● online   │
+│ gpu-node-03    │ MI325X   │   8  │ 256 GB   │ 6.4.0  │ ● online   │
 │ gpu-node-04    │ MI300X   │   8  │ 192 GB   │ 6.4.0  │ ◉ reserved│
-└────────────────┴──────────┴──────┴──────────┴────────┴────────┘
+└────────────────┴──────────┴──────┴──────────┴────────┴────────────┘
 ```
 
 **Fleet Features:**
@@ -510,14 +510,14 @@ Compare frameworks, topologies, dtypes, and GPU platforms with SLA-based winner 
 
 ```
 Campaign: "Llama 70B Production Config Selection"
-┌───────────┬──────────┬─────┬──────────────┬────────────┬──────────┬────────┬──────────┐
+┌───────────┬──────────┬──────┬──────────────┬────────────┬──────────┬────────┬──────────┐
 │ Framework │ Topology │ DType│ Throughput   │ TTFT p50   │ TTFT p99 │ TPOT   │ Winner?  │
-├───────────┼──────────┼─────┼──────────────┼────────────┼──────────┼────────┼──────────┤
-│ vLLM      │ TP=8     │ bf16│ 2,847 tok/s  │ 42.1 ms    │ 89.7 ms  │ 8.2 ms │ ✅ BEST  │
-│ vLLM      │ TP=4     │ bf16│ 2,103 tok/s  │ 58.3 ms    │ 142.1 ms │ 11.4 ms│          │
-│ SGLang    │ TP=8     │ bf16│ 2,614 tok/s  │ 38.9 ms    │ 95.2 ms  │ 9.1 ms │          │
-│ vLLM      │ TP=8     │ fp8 │ 3,291 tok/s  │ 35.7 ms    │ 78.4 ms  │ 6.8 ms │ ✅ PERF  │
-└───────────┴──────────┴─────┴──────────────┴────────────┴──────────┴────────┴──────────┘
+├───────────┼──────────┼──────┼──────────────┼────────────┼──────────┼────────┼──────────┤
+│ vLLM      │ TP=8     │ bf16 │ 2,847 tok/s  │ 42.1 ms    │ 89.7 ms  │ 8.2 ms │ ✅ BEST  │
+│ vLLM      │ TP=4     │ bf16 │ 2,103 tok/s  │ 58.3 ms    │ 142.1 ms │ 11.4 ms│          │
+│ SGLang    │ TP=8     │ bf16 │ 2,614 tok/s  │ 38.9 ms    │ 95.2 ms  │ 9.1 ms │          │
+│ vLLM      │ TP=8     │ fp8  │ 3,291 tok/s  │ 35.7 ms    │ 78.4 ms  │ 6.8 ms │ ✅ PERF  │
+└───────────┴──────────┴──────┴──────────────┴────────────┴──────────┴────────┴──────────┘
 SLA: TTFT p99 < 100ms ✅ | Throughput > 2000 tok/s ✅ | TPOT p99 < 15ms ✅
 Winner: vLLM TP=8 fp8 (highest throughput meeting all SLA targets)
 ```
@@ -865,25 +865,25 @@ InferForge is a **complementary platform** that integrates with — not replaces
 │  │  (AMD-AGI/Hyperloom)│  InferForge wraps this for session lifecycle, │
 │  │                    │  GUI monitoring, recipe extraction             │
 │  └────────┬───────────┘                                                │
-│           │ integrates                                                  │
+│           │ integrates                                                 │
 │           ▼                                                            │
 │  ┌─────────────────────┐                                               │
 │  │     InferForge      │  Unified platform: profiling + benchmarking   │
 │  │  (this project)     │  + optimization + fleet mgmt + deployment     │
 │  │                    │                                                │
 │  └────────┬───────────┘                                                │
-│           │ evolved from                                                │
+│           │ evolved from                                               │
 │           ▼                                                            │
 │  ┌─────────────────────────────┐                                       │
-│  │   AMD Inference Agent       │  Original conversational agent for     │
-│  │  (phoenix-amd/              │  GPU detection, memory profiling,      │
-│  │   amd-inference-agent)      │  and Docker benchmarks                 │
+│  │   AMD Inference Agent       │  Original conversational agent for    │
+│  │  (phoenix-amd/              │  GPU detection, memory profiling,     │
+│  │   amd-inference-agent)      │  and Docker benchmarks                │
 │  └─────────────────────────────┘                                       │
 │                                                                        │
 │  Other AMD tools InferForge interfaces with:                           │
-│  ├── TraceLens ── GPU trace analysis (via Hyperloom)                    │
+│  ├── TraceLens ── GPU trace analysis (via Hyperloom)                   │
 │  ├── Magpie ──── Benchmark engine (via Hyperloom)                      │
-│  ├── GEAK ────── GPU kernel generation (via Hyperloom)                  │
+│  ├── GEAK ────── GPU kernel generation (via Hyperloom)                 │
 │  ├── amd-smi ─── GPU hardware detection (direct SSH)                   │
 │  └── ROCm ────── GPU compute platform (Docker containers)              │
 └────────────────────────────────────────────────────────────────────────┘
